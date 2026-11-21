@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Blockade — model gallery</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+<style>
+  body { margin: 0; background: #1b2430; color: #eee; font: 14px system-ui, sans-serif; padding: 16px; }
+  h2 { margin: 18px 0 8px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  figure { margin: 0; background: radial-gradient(circle at 50% 35%, #3d4c60, #141b24); border-radius: 10px; padding: 6px; text-align: center; }
+  figure img { width: 220px; height: 220px; display: block; }
+  figcaption { font-weight: 700; margin-top: 4px; }
+  .maps img { width: 480px; height: 300px; }
+</style>
+</head>
+<body>
+<h1>Model gallery</h1>
+<p>Every tower (base and fully upgraded) and every zombie, rendered with the in-game model builders. Open via <code>npm start</code> → <code>/tools/gallery.html</code>.</p>
+<h2>Towers</h2><div class="grid" id="towers"></div>
+<h2>Zombies</h2><div class="grid" id="zombies"></div>
+<h2>Maps</h2><div class="grid maps" id="maps"></div>
+<script type="module">
+  import { Portraits } from '../src/render/portraits.js';
+  import { TOWERS } from '../src/config/towers.js';
+  import { ENEMIES } from '../src/config/enemies.js';
+  import { MAPS } from '../src/config/maps.js';
+  import { Game } from '../src/game/game.js';
+  const p = new Portraits();
+  const add = (id, src, cap) => { const f = document.createElement('figure'); f.innerHTML = `<img src="${src}"><figcaption>${cap}</figcaption>`; document.getElementById(id).appendChild(f); };
+  for (const [id, t] of Object.entries(TOWERS)) {
+    add('towers', p.tower(id, 0), `${t.name} (L0)`);
+    add('towers', p.tower(id, t.upgrades.length), `${t.name} (MAX)`);
+  }
+  for (const [id, e] of Object.entries(ENEMIES)) add('zombies', p.zombie(id), e.name);
+  for (const id of Object.keys(MAPS)) add('maps', p.map(new Game({ mapId: id })), MAPS[id].name);
+  document.body.dataset.ready = '1';
+</script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "blockade-zombie-defense",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "3D top-down zombie tower defense (Three.js, no build step)",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "sim": "node tools/sim.mjs",
+    "check": "node tools/check.mjs"
+  }
+}
