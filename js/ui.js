@@ -5,19 +5,15 @@ class UI {
   constructor(game) {
     this.game = game;
     this.selectedLoadout = [];
-    this.placingTower = null; // tower type being placed
-    this.hoveredShopTower = null;
-
+    this.placingTower = null;
     this.setupMenuListeners();
   }
 
   setupMenuListeners() {
-    // Main menu
     document.getElementById('btn-play').addEventListener('click', () => {
       this.showScreen('mode-select');
     });
 
-    // Mode select
     document.querySelectorAll('.btn-mode').forEach(btn => {
       btn.addEventListener('click', () => {
         this.game.selectedMode = btn.dataset.mode;
@@ -28,7 +24,6 @@ class UI {
       this.showScreen('main-menu');
     });
 
-    // Loadout
     document.getElementById('btn-back-loadout').addEventListener('click', () => {
       this.showScreen('mode-select');
     });
@@ -38,7 +33,6 @@ class UI {
       }
     });
 
-    // Game HUD
     document.getElementById('btn-start-wave').addEventListener('click', () => {
       this.game.startNextWave();
     });
@@ -54,7 +48,6 @@ class UI {
       });
     });
 
-    // Upgrade panel
     document.getElementById('btn-close-upgrade').addEventListener('click', () => {
       this.hideUpgradePanel();
       this.game.towerManager.deselectAll();
@@ -64,7 +57,6 @@ class UI {
       this.hideUpgradePanel();
     });
 
-    // Game over
     document.getElementById('btn-retry').addEventListener('click', () => {
       this.showLoadoutScreen();
     });
@@ -93,11 +85,9 @@ class UI {
       const card = document.createElement('div');
       card.className = 'tower-card';
       card.dataset.tower = key;
-      card.innerHTML = `
-        <img src="${def.svg}" alt="${def.name}">
-        <div class="tower-card-name">${def.name}</div>
-        <div class="tower-card-cost">$${def.cost}</div>
-      `;
+      card.innerHTML = '<img src="' + def.sprite + '" alt="' + def.name + '">' +
+        '<div class="tower-card-name">' + def.name + '</div>' +
+        '<div class="tower-card-cost">$' + def.cost + '</div>';
       card.addEventListener('click', () => this.toggleLoadoutTower(key));
       card.addEventListener('mouseenter', () => this.showTowerPreview(key));
       card.addEventListener('mouseleave', () => this.clearTowerPreview());
@@ -113,7 +103,6 @@ class UI {
       this.selectedLoadout.push(key);
     }
     this.updateLoadoutSlots();
-    // Update card styles
     document.querySelectorAll('.tower-card').forEach(c => {
       c.classList.toggle('selected', this.selectedLoadout.includes(c.dataset.tower));
     });
@@ -125,7 +114,7 @@ class UI {
     slots.forEach((slot, i) => {
       if (i < this.selectedLoadout.length) {
         const def = TOWERS[this.selectedLoadout[i]];
-        slot.innerHTML = `<img src="${def.svg}" alt="${def.name}">`;
+        slot.innerHTML = '<img src="' + def.sprite + '" alt="' + def.name + '">';
         slot.classList.remove('empty');
       } else {
         slot.innerHTML = '';
@@ -138,14 +127,14 @@ class UI {
     const def = TOWERS[key];
     const s = def.base;
     const preview = document.getElementById('tower-preview');
-    let info = `<strong>${def.name}</strong> - ${def.role} | ${def.placement}<br>`;
-    info += `Cost: $${def.cost}`;
-    if (s.damage) info += ` | Dmg: ${s.damage}`;
-    if (s.firerate) info += ` | Rate: ${s.firerate}s`;
-    info += ` | Range: ${s.range}`;
-    if (s.targetType === 'splash') info += ` | Splash: ${s.splashRadius}`;
-    if (s.income) info += ` | Income: $${s.income}/wave`;
-    if (s.firerateBuff) info += ` | Buff: ${s.firerateBuff * 100}% firerate`;
+    let info = '<strong>' + def.name + '</strong> - ' + def.role + ' | ' + def.placement + '<br>';
+    info += 'Cost: $' + def.cost;
+    if (s.damage) info += ' | Dmg: ' + s.damage;
+    if (s.firerate) info += ' | Rate: ' + s.firerate + 's';
+    info += ' | Range: ' + s.range;
+    if (s.targetType === 'splash') info += ' | Splash: ' + s.splashRadius;
+    if (s.income) info += ' | Income: $' + s.income + '/wave';
+    if (s.firerateBuff) info += ' | Buff: ' + (s.firerateBuff * 100) + '% firerate';
     preview.innerHTML = info;
   }
 
@@ -167,13 +156,11 @@ class UI {
       const div = document.createElement('div');
       div.className = 'shop-tower';
       div.dataset.tower = key;
-      div.innerHTML = `
-        <img src="${def.svg}" alt="${def.name}">
-        <div class="shop-tower-info">
-          <div class="shop-tower-name">${def.name}</div>
-          <div class="shop-tower-cost">$${def.cost}</div>
-        </div>
-      `;
+      div.innerHTML = '<img src="' + def.sprite + '" alt="' + def.name + '">' +
+        '<div class="shop-tower-info">' +
+        '<div class="shop-tower-name">' + def.name + '</div>' +
+        '<div class="shop-tower-cost">$' + def.cost + '</div>' +
+        '</div>';
       div.addEventListener('click', () => {
         if (this.game.cash >= def.cost) {
           this.placingTower = key;
@@ -185,33 +172,31 @@ class UI {
 
   updateHUD() {
     const g = this.game;
-    document.getElementById('hud-wave').textContent = `${g.currentWave}/${g.totalWaves}`;
-    document.getElementById('hud-cash').textContent = `$${Math.floor(g.cash)}`;
-    document.getElementById('hud-hp').textContent = `${Math.ceil(g.baseHP)}`;
+    document.getElementById('hud-wave').textContent = g.currentWave + '/' + g.totalWaves;
+    document.getElementById('hud-cash').textContent = '$' + Math.floor(g.cash);
+    document.getElementById('hud-hp').textContent = '' + Math.ceil(g.baseHP);
 
-    // Update shop affordability
     document.querySelectorAll('.shop-tower').forEach(div => {
       const def = TOWERS[div.dataset.tower];
       div.classList.toggle('cant-afford', g.cash < def.cost);
     });
 
-    // Wave button
     const waveBtn = document.getElementById('btn-start-wave');
     waveBtn.disabled = g.waveInProgress;
-    waveBtn.textContent = g.waveInProgress ? `Wave ${g.currentWave}...` : 'Start Wave';
+    waveBtn.textContent = g.waveInProgress ? 'Wave ' + g.currentWave + '...' : 'Start Wave';
   }
 
   showUpgradePanel(tower) {
     const panel = document.getElementById('upgrade-panel');
     panel.classList.remove('hidden');
-    document.getElementById('upgrade-tower-name').textContent = `${tower.name} (Lv ${tower.upgradeLevel})`;
+    document.getElementById('upgrade-tower-name').textContent = tower.name + ' (Lv ' + tower.upgradeLevel + ')';
 
     const stats = document.getElementById('upgrade-stats');
     const s = tower.stats;
-    let info = `Damage: ${s.damage || 0} | Range: ${s.range}`;
-    if (s.firerate) info += ` | Rate: ${s.firerate.toFixed(2)}s`;
-    if (s.income) info += ` | Income: $${s.income}/wave`;
-    info += `<br>Sell value: $${tower.getSellValue()}`;
+    let info = 'Damage: ' + (s.damage || 0) + ' | Range: ' + s.range;
+    if (s.firerate) info += ' | Rate: ' + s.firerate.toFixed(2) + 's';
+    if (s.income) info += ' | Income: $' + s.income + '/wave';
+    info += '<br>Sell value: $' + tower.getSellValue();
     stats.innerHTML = info;
 
     const list = document.getElementById('upgrade-list');
@@ -235,7 +220,7 @@ class UI {
       } else {
         btn.classList.add('cant-afford');
       }
-      btn.innerHTML = `<span class="upg-name">${upg.name}</span><span class="upg-cost">$${upg.cost}</span>`;
+      btn.innerHTML = '<span class="upg-name">' + upg.name + '</span><span class="upg-cost">$' + upg.cost + '</span>';
       list.appendChild(btn);
     }
   }
@@ -249,15 +234,8 @@ class UI {
     document.getElementById('game-hud').classList.add('hidden');
     document.getElementById('game-over-title').textContent = won ? 'VICTORY!' : 'GAME OVER';
     document.getElementById('game-over-info').textContent = won
-      ? `You conquered all ${g.totalWaves} waves!`
-      : `You survived ${g.currentWave} waves`;
+      ? 'You conquered all ' + g.totalWaves + ' waves!'
+      : 'You survived ' + g.currentWave + ' waves';
     this.showScreen('game-over');
-  }
-
-  // Returns grid position from canvas pixel coords
-  canvasToGrid(canvasX, canvasY) {
-    const col = Math.floor(canvasX / TILE_SIZE);
-    const row = Math.floor(canvasY / TILE_SIZE);
-    return { col, row };
   }
 }

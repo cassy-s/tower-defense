@@ -69,11 +69,12 @@ class SoundManager {
 
 class Game {
   constructor() {
+    window.game = this;
+
     this.canvas = document.getElementById('game-canvas');
     this.ctx = this.canvas.getContext('2d');
     this.sound = new SoundManager();
 
-    // State
     this.selectedMode = 'casual';
     this.loadout = [];
     this.cash = 600;
@@ -86,17 +87,14 @@ class Game {
     this.gameSpeed = 1;
     this.gameStarted = false;
 
-    // Managers
     this.towerManager = new TowerManager();
     this.enemyManager = new EnemyManager();
-    this.projectileManager = new ProjectileManager();
+    this.effectsManager = new EffectsManager();
     this.ui = new UI(this);
 
-    // Canvas sizing
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
 
-    // Input
     this.mouseX = 0;
     this.mouseY = 0;
     this.canvas.addEventListener('mousemove', e => this.onMouseMove(e));
@@ -106,35 +104,29 @@ class Game {
       this.ui.placingTower = null;
     });
 
-    // Resume audio on first click
     document.addEventListener('click', () => this.sound.resume(), { once: true });
 
-    // Start render loop
     this.lastTime = performance.now();
     requestAnimationFrame(t => this.loop(t));
   }
 
   resizeCanvas() {
-    const { cols, rows, tileSize } = getGridDimensions();
-    // Fit canvas to map size, scaled to fit window
-    const mapW = cols * tileSize;
-    const mapH = rows * tileSize;
-    const scaleX = window.innerWidth / mapW;
-    const scaleY = window.innerHeight / mapH;
+    const scaleX = window.innerWidth / MAP_W;
+    const scaleY = window.innerHeight / MAP_H;
     const scale = Math.min(scaleX, scaleY);
-
-    this.canvas.width = mapW;
-    this.canvas.height = mapH;
-    this.canvas.style.width = (mapW * scale) + 'px';
-    this.canvas.style.height = (mapH * scale) + 'px';
+    if (this.canvas.width !== MAP_W) this.canvas.width = MAP_W;
+    if (this.canvas.height !== MAP_H) this.canvas.height = MAP_H;
+    this.canvas.style.width = (MAP_W * scale) + 'px';
+    this.canvas.style.height = (MAP_H * scale) + 'px';
     this.canvasScale = scale;
   }
 
   getCanvasCoords(e) {
     const rect = this.canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / this.canvasScale;
-    const y = (e.clientY - rect.top) / this.canvasScale;
-    return { x, y };
+    return {
+      x: (e.clientX - rect.left) / this.canvasScale,
+      y: (e.clientY - rect.top) / this.canvasScale,
+    };
   }
 
   onMouseMove(e) {
@@ -146,15 +138,13 @@ class Game {
   onClick(e) {
     if (!this.gameStarted || this.gameOver) return;
     const { x, y } = this.getCanvasCoords(e);
-    const { col, row } = this.ui.canvasToGrid(x, y);
 
     if (this.ui.placingTower) {
-      this.tryPlaceTower(this.ui.placingTower, col, row);
+      this.tryPlaceTower(this.ui.placingTower, x, y);
       return;
     }
 
-    // Check if clicking on existing tower
-    const tower = this.towerManager.getTowerAt(col, row);
+    const tower = this.towerManager.getTowerAt(x, y);
     if (tower) {
       this.towerManager.deselectAll();
       tower.selected = true;
@@ -167,22 +157,20 @@ class Game {
     }
   }
 
-  tryPlaceTower(typeName, col, row) {
+  tryPlaceTower(typeName, px, py) {
     const def = TOWERS[typeName];
     if (this.cash < def.cost) return;
 
-    // Check placement limit
     if (def.base.placementLimit) {
       if (this.towerManager.getPlacementCount(typeName) >= def.base.placementLimit) return;
     }
 
-    if (!canPlaceTower(this.selectedMode, col, row, def.placement, this.towerManager.towers)) return;
+    const radius = def.hitboxRadius || 20;
+    if (!canPlaceAtPosition(this.selectedMode, px, py, radius, this.towerManager.towers)) return;
 
     this.cash -= def.cost;
-    this.towerManager.placeTower(typeName, col, row);
+    this.towerManager.placeTower(typeName, px, py);
     this.sound.play('place');
-
-    // Keep placing if shift held? For now just deselect
     this.ui.placingTower = null;
   }
 
@@ -200,10 +188,9 @@ class Game {
     this.gameStarted = true;
     this.selectedTower = null;
 
-    // Reset managers
     this.towerManager = new TowerManager();
     this.enemyManager = new EnemyManager();
-    this.projectileManager = new ProjectileManager();
+    this.effectsManager = new EffectsManager();
 
     this.ui.showGameHUD();
     this.ui.updateHUD();
@@ -240,37 +227,21 @@ class Game {
 
     dt *= this.gameSpeed;
 
-    // Update enemies
     this.enemyManager.update(dt);
 
-    // Check enemies that reached end
     const reached = this.enemyManager.getReachedEnd();
     for (const e of reached) {
-      const dmg = e.boss ? 10 : 1;
-      this.baseHP -= dmg;
+      this.baseHP -= e.boss ? 10 : 1;
     }
 
-    // Track kills for cash (enemies die in takeDamage, we detect here)
-    // Actually cash comes from wave bonuses and farms, not individual kills
-    // But let's give small cash per kill for fun
-    const alive = this.enemyManager.getAliveEnemies();
+    const targetable = this.enemyManager.getTargetableEnemies();
+    this.towerManager.update(dt, targetable, this.effectsManager);
+    this.effectsManager.update(dt);
 
-    // Update towers
-    this.towerManager.update(dt, this.enemyManager.enemies, this.projectileManager);
-
-    // Update projectiles
-    this.projectileManager.update(dt, this.enemyManager.enemies);
-
-    // Check wave complete
     if (this.waveInProgress && this.enemyManager.isWaveComplete()) {
       this.waveInProgress = false;
-      // Wave bonus
-      const bonus = getWaveBonus(this.selectedMode, this.currentWave - 1);
-      this.cash += bonus;
-      // Farm income
+      // Farm income only (no wave bonus — cash comes from enemy kills)
       this.cash += this.towerManager.getIncome();
-
-      // Check victory
       if (this.currentWave >= this.totalWaves) {
         this.gameOver = true;
         setTimeout(() => this.ui.showGameOver(true), 1000);
@@ -278,7 +249,6 @@ class Game {
       }
     }
 
-    // Check game over
     if (this.baseHP <= 0) {
       this.baseHP = 0;
       this.gameOver = true;
@@ -290,64 +260,59 @@ class Game {
 
   render() {
     const ctx = this.ctx;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.clearRect(0, 0, MAP_W, MAP_H);
 
     if (!this.gameStarted) return;
 
-    // Draw map
-    drawMap(ctx, this.selectedMode, this.canvas.width, this.canvas.height);
+    drawMap(ctx, this.selectedMode);
 
-    // Draw placement preview
+    // Placement preview
     if (this.ui.placingTower) {
-      const { col, row } = this.ui.canvasToGrid(this.mouseX, this.mouseY);
       const def = TOWERS[this.ui.placingTower];
-      const canPlace = canPlaceTower(this.selectedMode, col, row, def.placement, this.towerManager.towers);
+      const radius = def.hitboxRadius || 20;
+      const mx = this.mouseX, my = this.mouseY;
+      const canPlace = canPlaceAtPosition(this.selectedMode, mx, my, radius, this.towerManager.towers) && this.cash >= def.cost;
 
-      // Range preview
-      const range = def.base.range * 16;
-      const cx = col * TILE_SIZE + TILE_SIZE / 2;
-      const cy = row * TILE_SIZE + TILE_SIZE / 2;
+      // Range circle
+      const range = def.base.range * RANGE_SCALE;
       ctx.beginPath();
-      ctx.arc(cx, cy, range, 0, Math.PI * 2);
-      ctx.fillStyle = canPlace ? 'rgba(100,255,100,0.1)' : 'rgba(255,100,100,0.1)';
+      ctx.arc(mx, my, range, 0, Math.PI * 2);
+      ctx.fillStyle = canPlace ? 'rgba(100,255,100,0.08)' : 'rgba(255,100,100,0.08)';
       ctx.fill();
-      ctx.strokeStyle = canPlace ? 'rgba(100,255,100,0.3)' : 'rgba(255,100,100,0.3)';
+      ctx.strokeStyle = canPlace ? 'rgba(100,255,100,0.25)' : 'rgba(255,100,100,0.25)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Tile highlight
-      ctx.fillStyle = canPlace ? 'rgba(100,255,100,0.3)' : 'rgba(255,100,100,0.3)';
-      ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+      // Hitbox circle
+      ctx.beginPath();
+      ctx.arc(mx, my, radius, 0, Math.PI * 2);
+      ctx.fillStyle = canPlace ? 'rgba(100,255,100,0.2)' : 'rgba(255,100,100,0.2)';
+      ctx.fill();
+      ctx.strokeStyle = canPlace ? 'rgba(100,255,100,0.5)' : 'rgba(255,100,100,0.5)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
 
-      // Ghost tower image
+      // Ghost tower
       const img = this.towerManager.towerImages[this.ui.placingTower];
       if (img && img.complete) {
         ctx.globalAlpha = 0.6;
-        ctx.drawImage(img, col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        ctx.drawImage(img, mx - TILE_SIZE / 2, my - TILE_SIZE / 2, TILE_SIZE, TILE_SIZE);
         ctx.globalAlpha = 1;
       }
     }
 
-    // Draw towers
     this.towerManager.draw(ctx);
-
-    // Draw enemies
     this.enemyManager.draw(ctx);
-
-    // Draw projectiles and particles
-    this.projectileManager.draw(ctx);
+    this.effectsManager.draw(ctx);
   }
 
   loop(time) {
-    const dt = Math.min((time - this.lastTime) / 1000, 0.05); // cap at 50ms
+    const dt = Math.min((time - this.lastTime) / 1000, 0.05);
     this.lastTime = time;
-
     this.update(dt);
     this.render();
-
     requestAnimationFrame(t => this.loop(t));
   }
 }
 
-// Initialize
 const game = new Game();

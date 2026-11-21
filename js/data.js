@@ -3,13 +3,17 @@
 // ============================================================
 
 const TILE_SIZE = 48;
-const RANGE_SCALE = 16; // range_pixels = range_tiles * RANGE_SCALE
+const RANGE_SCALE = 16;
+const MAP_COLS = 20;
+const MAP_ROWS = 15;
+const MAP_W = MAP_COLS * TILE_SIZE;
+const MAP_H = MAP_ROWS * TILE_SIZE;
+const PATH_BUFFER = 40;
 
-// ---- TOWER DEFINITIONS ----
 const TOWERS = {
   grunt: {
     name: "Grunt", cost: 125, role: "Offense", placement: "ground",
-    unlockCost: 0, svg: "assets/towers/grunt.svg",
+    unlockCost: 0, sprite: "assets/towers/grunt.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 1.0, range: 12, targetType: "single", detectHidden: false, detectLead: false, detectFlying: false },
     upgrades: [
       { name: "Faster Reloading", cost: 50, apply: s => { s.firerate = 0.7; } },
@@ -20,7 +24,7 @@ const TOWERS = {
   },
   sniper: {
     name: "Sniper", cost: 450, role: "Defense", placement: "cliff",
-    unlockCost: 0, svg: "assets/towers/sniper.svg",
+    unlockCost: 0, sprite: "assets/towers/sniper.png", hitboxRadius: 20,
     base: { damage: 10, firerate: 5.0, range: 28, targetType: "single", detectHidden: false, detectLead: false, detectFlying: false, stunImmune: true },
     upgrades: [
       { name: "Faster Reloading", cost: 200, apply: s => { s.damage += 2; s.firerate = 4; } },
@@ -31,7 +35,7 @@ const TOWERS = {
   },
   paintballer: {
     name: "Paintballer", cost: 100, role: "Offense", placement: "ground",
-    unlockCost: 100, svg: "assets/towers/paintballer.svg",
+    unlockCost: 100, sprite: "assets/towers/paintballer.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 1.7, range: 7.5, targetType: "splash", splashRadius: 3, maxHits: 8, detectHidden: false, detectLead: false, detectFlying: false },
     upgrades: [
       { name: "Paintball Gear", cost: 25, apply: s => { s.range += 1.5; s.splashRadius += 1; s.detectHidden = true; } },
@@ -43,7 +47,7 @@ const TOWERS = {
   },
   demolitions: {
     name: "Demolitions", cost: 700, role: "Offense", placement: "ground",
-    unlockCost: 200, svg: "assets/towers/demolitions.svg",
+    unlockCost: 200, sprite: "assets/towers/demolitions.png", hitboxRadius: 24,
     base: { damage: 8, firerate: 2.6, range: 10, targetType: "splash", splashRadius: 4.5, aimTime: 1.0, detectHidden: false, detectLead: true },
     upgrades: [
       { name: "Faster Throwing", cost: 300, apply: s => { s.range += 2; s.firerate = 2.0; } },
@@ -54,7 +58,7 @@ const TOWERS = {
   },
   soldier: {
     name: "Soldier", cost: 400, role: "Offense", placement: "ground",
-    unlockCost: 350, svg: "assets/towers/soldier.svg",
+    unlockCost: 350, sprite: "assets/towers/soldier.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 0.175, range: 17, targetType: "burst", burstCount: 3, burstCooldown: 0.5, detectHidden: false, detectLead: false, detectFlying: false },
     upgrades: [
       { name: "Barracks Training", cost: 100, apply: s => { s.burstCooldown = 0.4; s.firerate = 0.15; } },
@@ -65,7 +69,7 @@ const TOWERS = {
   },
   farm: {
     name: "Farm", cost: 300, role: "Support", placement: "ground",
-    unlockCost: 2000, svg: "assets/towers/farm.svg",
+    unlockCost: 2000, sprite: "assets/towers/farm.png", hitboxRadius: 16,
     base: { damage: 0, firerate: 0, range: 5, targetType: "none", income: 60, placementLimit: 10, stunImmune: true, freezeImmune: true },
     upgrades: [
       { name: "Carrot Farm", cost: 200, apply: s => { s.income = 90; } },
@@ -77,7 +81,7 @@ const TOWERS = {
   },
   pyromancer: {
     name: "Pyromancer", cost: 900, role: "Offense", placement: "ground",
-    unlockCost: 1250, svg: "assets/towers/pyromancer.svg",
+    unlockCost: 1250, sprite: "assets/towers/pyromancer.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 0.275, range: 9, targetType: "pierce", maxHits: 3, burnDamage: 2, burnDuration: 3, defenseMelt: 0.01, detectHidden: false, detectLead: true },
     upgrades: [
       { name: "Improved Handling", cost: 325, apply: s => { s.firerate = 0.2; s.range += 2; s.detectHidden = true; s.maxHits += 1; } },
@@ -89,7 +93,7 @@ const TOWERS = {
   },
   commander: {
     name: "Commander", cost: 650, role: "Support", placement: "ground",
-    unlockCost: 4000, svg: "assets/towers/commander.svg",
+    unlockCost: 4000, sprite: "assets/towers/commander.png", hitboxRadius: 20,
     base: { damage: 0, firerate: 0, range: 10, targetType: "none", firerateBuff: 0.10, placementLimit: 6, detectHidden: true, detectLead: true, detectFlying: true },
     upgrades: [
       { name: "Leadership", cost: 400, apply: s => { s.firerateBuff = 0.15; } },
@@ -100,7 +104,7 @@ const TOWERS = {
   },
   minigunner: {
     name: "Minigunner", cost: 1850, role: "Offense", placement: "ground",
-    unlockCost: 8000, svg: "assets/towers/minigunner.svg",
+    unlockCost: 8000, sprite: "assets/towers/minigunner.png", hitboxRadius: 28,
     base: { damage: 2, firerate: 0.15, range: 16, targetType: "single", revUpTime: 1.4, detectHidden: false },
     upgrades: [
       { name: "Improved Handling", cost: 350, apply: s => { s.firerate = 0.12; s.revUpTime = 1.2; s.detectHidden = true; } },
@@ -111,7 +115,7 @@ const TOWERS = {
   },
   accel: {
     name: "Accelerator", cost: 7500, role: "Offense", placement: "ground",
-    unlockCost: 2500, svg: "assets/towers/accel.svg",
+    unlockCost: 2500, sprite: "assets/towers/accel.png", hitboxRadius: 20,
     base: { damage: 12, firerate: 0.25, range: 19, targetType: "beam", chargeUpTime: 6.5, beamCooldown: 2.5, overcharge: 9000, placementLimit: 5, detectHidden: false, detectLead: true, stunImmune: true },
     upgrades: [
       { name: "Extra Juice", cost: 2000, apply: s => { s.damage += 3; s.detectHidden = true; s.overcharge += 3000; } },
@@ -123,9 +127,7 @@ const TOWERS = {
   },
 };
 
-// ---- ENEMY DEFINITIONS ----
 const ENEMIES = {
-  // Casual / base enemies
   normal:       { name: "Normal",       hp: 10,   speed: 1.0, color: "#55aa55", size: 1, hidden: false, armor: 0, burnImmune: false },
   speedy:       { name: "Speedy",       hp: 6,    speed: 2.0, color: "#ffaa00", size: 1, hidden: false, armor: 0, burnImmune: false },
   slow:         { name: "Slow",         hp: 30,   speed: 0.5, color: "#888888", size: 1, hidden: false, armor: 0, burnImmune: false },
@@ -138,16 +140,12 @@ const ENEMIES = {
   hazmat:       { name: "Hazmat",       hp: 40,   speed: 0.8, color: "#44cc44", size: 1, hidden: false, armor: 0, burnImmune: true },
   skeleton:     { name: "Skeleton",     hp: 15,   speed: 1.5, color: "#ddddaa", size: 1, hidden: false, armor: 0, burnImmune: false },
   bolt:         { name: "Bolt",         hp: 12,   speed: 3.0, color: "#44aaff", size: 1, hidden: false, armor: 0, burnImmune: false },
-
-  // Bosses (casual)
   normalBoss:   { name: "Normal Boss",  hp: 200,  speed: 0.6, color: "#55aa55", size: 1.5, hidden: false, armor: 0, burnImmune: false, boss: true },
   slowBoss:     { name: "Slow Boss",    hp: 800,  speed: 0.3, color: "#666666", size: 2,   hidden: false, armor: 0, burnImmune: false, boss: true },
   hiddenBoss:   { name: "Hidden Boss",  hp: 400,  speed: 0.8, color: "#aa55ff", size: 1.5, hidden: true,  armor: 0, burnImmune: false, boss: true },
   speedyBoss:   { name: "Speedy Boss",  hp: 150,  speed: 2.5, color: "#ffaa00", size: 1.5, hidden: false, armor: 0, burnImmune: false, boss: true },
   necromancer:  { name: "Necromancer",  hp: 300,  speed: 0.5, color: "#440066", size: 1.5, hidden: false, armor: 0, burnImmune: false, boss: true, spawnsOnDeath: { type: "skeleton", count: 3 } },
   graveDigger:  { name: "Grave Digger", hp: 5000, speed: 0.4, color: "#332211", size: 3,   hidden: false, armor: 0, burnImmune: false, boss: true },
-
-  // Molten enemies
   abnormal:         { name: "Abnormal",         hp: 12,   speed: 1.0, color: "#ff6633", size: 1 },
   quick:            { name: "Quick",            hp: 8,    speed: 2.0, color: "#ffcc00", size: 1 },
   heavy:            { name: "Heavy",            hp: 40,   speed: 0.5, color: "#884422", size: 1 },
@@ -167,8 +165,6 @@ const ENEMIES = {
   moltenSummoner:   { name: "Molten Summoner",  hp: 1500, speed: 0.4, color: "#660033", size: 2, boss: true, spawnsOnDeath: { type: "moltenHound", count: 4 } },
   moltenTitan:      { name: "Molten Titan",     hp: 2500, speed: 0.3, color: "#552200", size: 2.5 },
   moltenWarlord:    { name: "Molten Warlord",   hp: 15000,speed: 0.3, color: "#ff2200", size: 3, boss: true },
-
-  // Fallen enemies
   fallenSkeleton:   { name: "Fallen Skeleton",  hp: 15,   speed: 1.5, color: "#9988aa", size: 1 },
   fallenDreg:       { name: "Fallen Dreg",      hp: 25,   speed: 1.0, color: "#665577", size: 1 },
   fallenSquire:     { name: "Fallen Squire",    hp: 300,  speed: 0.6, color: "#554466", size: 1.5, boss: true },
@@ -193,7 +189,6 @@ const ENEMIES = {
   fallenKing:       { name: "Fallen King",      hp: 20000,speed: 0.3, color: "#440066", size: 3, boss: true },
 };
 
-// Fill defaults for enemies missing fields
 for (const e of Object.values(ENEMIES)) {
   if (e.hidden === undefined) e.hidden = false;
   if (e.armor === undefined) e.armor = 0;
@@ -201,10 +196,8 @@ for (const e of Object.values(ENEMIES)) {
   if (e.boss === undefined) e.boss = false;
 }
 
-// ---- WAVE DATA ----
 const WAVES = {
   casual: [
-    // Wave 1-25
     [{ count:4, type:"normal" }],
     [{ count:4, type:"normal" }, { count:4, type:"speedy" }],
     [{ count:3, type:"speedy" }, { count:5, type:"normal" }],
@@ -215,41 +208,24 @@ const WAVES = {
     [{ count:8, type:"slow" }, { count:4, type:"normal", mods:["bloated"] }, { count:3, type:"speedy", mods:["bloated"] }],
     [{ count:12, type:"hidden" }],
     [{ count:4, type:"normal", mods:["bloated"] }, { count:3, type:"speedy", mods:["nimble"] }, { count:5, type:"slow", mods:["bloated"] }, { count:4, type:"hidden" }, { count:8, type:"normal" }, { count:4, type:"normal", mods:["bloated"] }, { count:3, type:"speedy", mods:["nimble"] }, { count:5, type:"slow", mods:["bloated"] }, { count:2, type:"normalBoss" }],
-    // Wave 11
     [{ count:6, type:"breaker2" }, { count:4, type:"speedy" }, { count:3, type:"hidden" }],
-    // Wave 12
     [{ count:5, type:"armored" }, { count:6, type:"normal", mods:["bloated"] }],
-    // Wave 13
     [{ count:8, type:"breaker2" }, { count:4, type:"enraged" }, { count:1, type:"slowBoss" }],
-    // Wave 14
     [{ count:6, type:"hidden", mods:["nimble"] }, { count:4, type:"armored" }, { count:6, type:"breaker2" }],
-    // Wave 15
     [{ count:5, type:"breaker3" }, { count:3, type:"enraged" }, { count:2, type:"normalBoss" }, { count:8, type:"normal", mods:["bloated"] }],
-    // Wave 16
     [{ count:10, type:"skeleton" }, { count:1, type:"necromancer" }, { count:5, type:"hidden" }],
-    // Wave 17
     [{ count:4, type:"armored", mods:["bloated"] }, { count:6, type:"breaker3" }, { count:3, type:"enraged", mods:["nimble"] }],
-    // Wave 18
     [{ count:8, type:"hazmat" }, { count:4, type:"breaker3", mods:["bloated"] }, { count:1, type:"hiddenBoss" }],
-    // Wave 19
     [{ count:5, type:"bolt" }, { count:3, type:"breaker4" }, { count:6, type:"armored" }, { count:2, type:"speedyBoss" }],
-    // Wave 20
     [{ count:6, type:"breaker4" }, { count:4, type:"armored", mods:["bloated"] }, { count:1, type:"slowBoss" }, { count:8, type:"enraged" }, { count:2, type:"normalBoss" }],
-    // Wave 21
     [{ count:8, type:"breaker4", mods:["bloated"] }, { count:5, type:"bolt" }, { count:4, type:"hazmat" }],
-    // Wave 22
     [{ count:6, type:"armored", mods:["bloated"] }, { count:1, type:"necromancer" }, { count:10, type:"skeleton" }, { count:3, type:"breaker4" }],
-    // Wave 23
     [{ count:4, type:"breaker4", mods:["bloated"] }, { count:2, type:"hiddenBoss" }, { count:6, type:"enraged", mods:["nimble"] }, { count:1, type:"slowBoss" }],
-    // Wave 24
     [{ count:10, type:"bolt" }, { count:8, type:"breaker4" }, { count:4, type:"armored", mods:["bloated"] }, { count:2, type:"speedyBoss" }, { count:1, type:"necromancer" }],
-    // Wave 25 (final)
     [{ count:1, type:"graveDigger" }, { count:6, type:"breaker4", mods:["bloated"] }, { count:8, type:"enraged" }, { count:4, type:"armored", mods:["bloated"] }],
   ],
-
   molten: (() => {
     const w = [];
-    // Waves 1-10 hand-crafted
     w.push([{ count:5, type:"abnormal" }]);
     w.push([{ count:4, type:"abnormal" }, { count:4, type:"quick" }]);
     w.push([{ count:6, type:"abnormal" }, { count:3, type:"quick" }, { count:3, type:"heavy" }]);
@@ -260,7 +236,6 @@ const WAVES = {
     w.push([{ count:5, type:"moltenDemon" }, { count:3, type:"eliteHazmat" }, { count:1, type:"moltenGolem" }]);
     w.push([{ count:8, type:"moltenHound" }, { count:4, type:"molten" }, { count:3, type:"heavy", mods:["bloated"] }]);
     w.push([{ count:6, type:"moltenDemon" }, { count:2, type:"eliteAbnormal" }, { count:1, type:"moltenGolem" }, { count:5, type:"moltenHound" }]);
-    // Waves 11-35 generated
     for (let i = 11; i <= 35; i++) {
       const groups = [];
       const scale = 1 + (i - 10) * 0.15;
@@ -287,7 +262,6 @@ const WAVES = {
         groups.push({ count: Math.round(4 * scale), type: "tanker", mods:["bloated"] });
         groups.push({ count: 1, type: "moltenExecutioner" });
       } else {
-        // Wave 35 final
         groups.push({ count: 1, type: "moltenWarlord" });
         groups.push({ count: 6, type: "moltenTitan", mods:["bloated"] });
         groups.push({ count: 4, type: "tanker", mods:["bloated"] });
@@ -296,10 +270,8 @@ const WAVES = {
     }
     return w;
   })(),
-
   fallen: (() => {
     const w = [];
-    // Waves 1-10 hand-crafted
     w.push([{ count:5, type:"fallenSkeleton" }]);
     w.push([{ count:4, type:"fallenSkeleton" }, { count:4, type:"fallenSoul" }]);
     w.push([{ count:6, type:"fallenDreg" }, { count:3, type:"fallenSkeleton" }]);
@@ -310,7 +282,6 @@ const WAVES = {
     w.push([{ count:8, type:"fallenSeraph" }, { count:4, type:"fallen" }]);
     w.push([{ count:4, type:"possessedArmor" }, { count:6, type:"corruptedFallen" }, { count:1, type:"fallenSquire" }]);
     w.push([{ count:5, type:"possessedArmor" }, { count:3, type:"necroticSkeleton" }, { count:1, type:"fallenGiant" }, { count:6, type:"fallenRusher" }]);
-    // Waves 11-40 generated
     for (let i = 11; i <= 40; i++) {
       const groups = [];
       const scale = 1 + (i - 10) * 0.12;
@@ -340,7 +311,6 @@ const WAVES = {
         groups.push({ count: 2, type: "fallenHonorGuard" });
         groups.push({ count: 1, type: "fallenAngel" });
       } else {
-        // Wave 40 final
         groups.push({ count: 1, type: "fallenKing" });
         groups.push({ count: 4, type: "fallenHonorGuard" });
         groups.push({ count: 6, type: "fallenTank", mods:["bloated"] });
@@ -350,22 +320,6 @@ const WAVES = {
     return w;
   })(),
 };
-
-// Wave bonus calculation
-function getWaveBonus(mode, waveIndex) {
-  const waveNum = waveIndex + 1;
-  if (mode === "casual") {
-    if (waveNum <= 20) return waveNum * 200;
-    return 300 + (waveNum - 1) * 350;
-  }
-  if (mode === "molten") {
-    if (waveNum <= 25) return waveNum * 250;
-    return waveNum * 300;
-  }
-  // fallen
-  if (waveNum <= 30) return waveNum * 200;
-  return waveNum * 350;
-}
 
 const MODE_CONFIG = {
   casual: { waves: 25, startCash: 600, baseHP: 100, hpScale: 1 },

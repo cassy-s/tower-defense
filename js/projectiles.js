@@ -1,139 +1,77 @@
 // ============================================================
-// PROJECTILES - Movement, collision, splash damage, particles
+// EFFECTS - Tracers, muzzle flashes, impact particles, floating text
 // ============================================================
 
-const PROJECTILE_SPEED = 500; // pixels per second
-
-class Projectile {
-  constructor(x, y, target, damage, options = {}) {
-    this.x = x;
-    this.y = y;
-    this.target = target;
-    this.damage = damage;
-    this.speed = options.speed || PROJECTILE_SPEED;
+class Tracer {
+  constructor(x1, y1, x2, y2, color, width) {
+    this.x1 = x1; this.y1 = y1;
+    this.x2 = x2; this.y2 = y2;
+    this.color = color;
+    this.width = width || 2;
+    this.life = 0.1;
+    this.maxLife = 0.1;
     this.alive = true;
-    this.splash = options.splash || false;
-    this.splashRadius = (options.splashRadius || 0) * 16; // convert tile units to pixels
-    this.maxHits = options.maxHits || 1;
-    this.pierce = options.pierce || false;
-    this.hitCount = 0;
-    this.burnDamage = options.burnDamage || 0;
-    this.burnDuration = options.burnDuration || 0;
-    this.defenseMelt = options.defenseMelt || 0;
-    this.color = options.color || '#ffff44';
-    this.size = options.size || 3;
-    this.hitEnemies = new Set();
-    // For pierce projectiles - direction
-    if (this.pierce && target) {
-      const dx = target.x - x, dy = target.y - y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      this.dirX = dist > 0 ? dx / dist : 1;
-      this.dirY = dist > 0 ? dy / dist : 0;
-    }
-    this.maxRange = options.maxRange || 800;
-    this.traveled = 0;
   }
-
-  update(dt, enemies, particles) {
-    if (!this.alive) return;
-
-    if (this.pierce) {
-      // Pierce: move in straight line, hit enemies along the way
-      const move = this.speed * dt;
-      this.x += this.dirX * move;
-      this.y += this.dirY * move;
-      this.traveled += move;
-
-      // Check hits
-      for (const e of enemies) {
-        if (!e.alive || e.reachedEnd || this.hitEnemies.has(e)) continue;
-        const dx = e.x - this.x, dy = e.y - this.y;
-        if (dx * dx + dy * dy < (e.radius + this.size) * (e.radius + this.size)) {
-          this.hitEnemies.add(e);
-          this.hitCount++;
-          e.takeDamage(this.damage, { defenseMelt: this.defenseMelt });
-          if (this.burnDamage > 0) e.applyBurn(this.burnDamage, this.burnDuration);
-          particles.push(new Particle(e.x, e.y, this.color));
-          if (this.hitCount >= this.maxHits) { this.alive = false; return; }
-        }
-      }
-
-      if (this.traveled > this.maxRange) this.alive = false;
-    } else if (this.target && this.target.alive) {
-      // Homing toward target
-      const dx = this.target.x - this.x, dy = this.target.y - this.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < this.speed * dt) {
-        // Hit
-        this.x = this.target.x;
-        this.y = this.target.y;
-        this.onHit(enemies, particles);
-      } else {
-        this.x += (dx / dist) * this.speed * dt;
-        this.y += (dy / dist) * this.speed * dt;
-      }
-    } else {
-      // Target dead, just disappear or keep going to last position
-      this.alive = false;
-    }
+  update(dt) {
+    this.life -= dt;
+    if (this.life <= 0) this.alive = false;
   }
-
-  onHit(enemies, particles) {
-    if (this.splash && this.splashRadius > 0) {
-      // Splash damage
-      let hits = 0;
-      for (const e of enemies) {
-        if (!e.alive || e.reachedEnd) continue;
-        const dx = e.x - this.x, dy = e.y - this.y;
-        if (dx * dx + dy * dy < this.splashRadius * this.splashRadius) {
-          e.takeDamage(this.damage, { defenseMelt: this.defenseMelt });
-          if (this.burnDamage > 0) e.applyBurn(this.burnDamage, this.burnDuration);
-          hits++;
-          if (hits >= this.maxHits) break;
-        }
-      }
-      // Explosion particle
-      for (let i = 0; i < 8; i++) {
-        particles.push(new Particle(this.x, this.y, '#ff8800', 2));
-      }
-    } else {
-      // Single target
-      this.target.takeDamage(this.damage, { defenseMelt: this.defenseMelt });
-      if (this.burnDamage > 0) this.target.applyBurn(this.burnDamage, this.burnDuration);
-      particles.push(new Particle(this.x, this.y, this.color));
-    }
-    this.alive = false;
-  }
-
   draw(ctx) {
     if (!this.alive) return;
+    const a = this.life / this.maxLife;
+    ctx.globalAlpha = a;
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.moveTo(this.x1, this.y1);
+    ctx.lineTo(this.x2, this.y2);
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = this.width * a;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+class MuzzleFlash {
+  constructor(x, y, color) {
+    this.x = x; this.y = y;
+    this.color = color || '#ffffaa';
+    this.life = 0.06;
+    this.maxLife = 0.06;
+    this.radius = 6 + Math.random() * 4;
+    this.alive = true;
+  }
+  update(dt) {
+    this.life -= dt;
+    if (this.life <= 0) this.alive = false;
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    const a = this.life / this.maxLife;
+    ctx.globalAlpha = a;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius * (1 + (1 - a) * 0.5), 0, Math.PI * 2);
     ctx.fillStyle = this.color;
     ctx.fill();
+    ctx.globalAlpha = 1;
   }
 }
 
 class Particle {
-  constructor(x, y, color, life = 0.4) {
-    this.x = x;
-    this.y = y;
-    this.vx = (Math.random() - 0.5) * 100;
-    this.vy = (Math.random() - 0.5) * 100;
-    this.life = life;
-    this.maxLife = life;
+  constructor(x, y, color, life) {
+    this.x = x; this.y = y;
+    this.vx = (Math.random() - 0.5) * 120;
+    this.vy = (Math.random() - 0.5) * 120;
+    this.life = life || 0.3;
+    this.maxLife = this.life;
     this.color = color;
+    this.size = 1.5 + Math.random() * 2.5;
     this.alive = true;
-    this.size = 2 + Math.random() * 3;
   }
-
   update(dt) {
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     this.life -= dt;
     if (this.life <= 0) this.alive = false;
   }
-
   draw(ctx) {
     if (!this.alive) return;
     ctx.globalAlpha = this.life / this.maxLife;
@@ -145,29 +83,103 @@ class Particle {
   }
 }
 
-class ProjectileManager {
+class SplashCircle {
+  constructor(x, y, radius, color) {
+    this.x = x; this.y = y;
+    this.maxRadius = radius;
+    this.color = color || '#ff8800';
+    this.life = 0.25;
+    this.maxLife = 0.25;
+    this.alive = true;
+  }
+  update(dt) {
+    this.life -= dt;
+    if (this.life <= 0) this.alive = false;
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    const pct = 1 - this.life / this.maxLife;
+    const r = this.maxRadius * (0.3 + pct * 0.7);
+    ctx.globalAlpha = this.life / this.maxLife * 0.4;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    ctx.globalAlpha = this.life / this.maxLife * 0.6;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = this.color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+}
+
+class FloatingText {
+  constructor(x, y, text, color) {
+    this.x = x; this.y = y;
+    this.text = text;
+    this.color = color || '#44ff44';
+    this.life = 1.0;
+    this.maxLife = 1.0;
+    this.alive = true;
+    this.vy = -40;
+  }
+  update(dt) {
+    this.y += this.vy * dt;
+    this.life -= dt;
+    if (this.life <= 0) this.alive = false;
+  }
+  draw(ctx) {
+    if (!this.alive) return;
+    const a = Math.min(1, this.life / (this.maxLife * 0.3));
+    ctx.globalAlpha = a;
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#000';
+    ctx.fillText(this.text, this.x + 1, this.y + 1);
+    ctx.fillStyle = this.color;
+    ctx.fillText(this.text, this.x, this.y);
+    ctx.globalAlpha = 1;
+  }
+}
+
+class EffectsManager {
   constructor() {
-    this.projectiles = [];
-    this.particles = [];
+    this.effects = [];
   }
 
-  add(proj) {
-    this.projectiles.push(proj);
+  addTracer(x1, y1, x2, y2, color, width) {
+    this.effects.push(new Tracer(x1, y1, x2, y2, color, width));
   }
 
-  update(dt, enemies) {
-    for (const p of this.projectiles) {
-      p.update(dt, enemies, this.particles);
+  addMuzzleFlash(x, y, color) {
+    this.effects.push(new MuzzleFlash(x, y, color));
+  }
+
+  addImpact(x, y, color, count) {
+    for (let i = 0; i < (count || 3); i++) {
+      this.effects.push(new Particle(x, y, color));
     }
-    for (const p of this.particles) {
-      p.update(dt);
+  }
+
+  addSplash(x, y, radius, color) {
+    this.effects.push(new SplashCircle(x, y, radius, color));
+    for (let i = 0; i < 6; i++) {
+      this.effects.push(new Particle(x, y, color || '#ff8800', 0.4));
     }
-    this.projectiles = this.projectiles.filter(p => p.alive);
-    this.particles = this.particles.filter(p => p.alive);
+  }
+
+  addFloatingText(x, y, text, color) {
+    this.effects.push(new FloatingText(x, y, text, color));
+  }
+
+  update(dt) {
+    for (const e of this.effects) e.update(dt);
+    this.effects = this.effects.filter(e => e.alive);
   }
 
   draw(ctx) {
-    for (const p of this.projectiles) p.draw(ctx);
-    for (const p of this.particles) p.draw(ctx);
+    for (const e of this.effects) e.draw(ctx);
   }
 }

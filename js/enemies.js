@@ -1,16 +1,16 @@
 // ============================================================
-// ENEMIES - Spawning, movement along path, modifiers
+// ENEMIES - Spawning, movement along path, cash drops, death anim
 // ============================================================
-const ENEMY_BASE_SPEED = 60; // pixels per second at speed 1.0
+const ENEMY_BASE_SPEED = 60;
 
 class Enemy {
-  constructor(typeName, mods = [], hpScale = 1) {
+  constructor(typeName, mods, hpScale) {
     const def = ENEMIES[typeName];
-    if (!def) { console.error("Unknown enemy type:", typeName); return; }
+    if (!def) return;
 
     this.typeName = typeName;
     this.name = def.name;
-    this.maxHP = Math.round(def.hp * hpScale);
+    this.maxHP = Math.round(def.hp * (hpScale || 1));
     this.hp = this.maxHP;
     this.speed = def.speed;
     this.baseSpeed = def.speed;
@@ -23,16 +23,15 @@ class Enemy {
     this.spawnsOnDeath = def.spawnsOnDeath || null;
     this.mods = mods || [];
 
-    // Position along path
-    this.pathIndex = 0; // current segment
+    this.pathIndex = 0;
     this.x = 0;
     this.y = 0;
-    this.progress = 0; // 0-1 along total path
     this.alive = true;
     this.reachedEnd = false;
     this.distanceTraveled = 0;
+    this.dying = false;
+    this.deathTimer = 0;
 
-    // Status effects
     this.burnTimer = 0;
     this.burnDamage = 0;
     this.burnTickTimer = 0;
@@ -40,8 +39,11 @@ class Enemy {
     this.slowFactor = 1;
     this.stunTimer = 0;
     this.healthRegen = false;
+    this.flashTimer = 0;
 
-    // Apply modifiers
+    // Cash drop tracking: 20 thresholds at 5% each
+    this.cashThresholdsPaid = 0;
+
     for (const mod of this.mods) {
       switch (mod) {
         case 'bloated':
@@ -69,26 +71,44 @@ class Enemy {
       }
     }
 
-    // Visual
-    this.radius = 10 * this.size;
-    this.flashTimer = 0;
+    this.radius = 16 * this.size;
   }
 
-  takeDamage(amount, options = {}) {
-    if (!this.alive) return;
+  takeDamage(amount, options) {
+    if (!this.alive || this.dying) return;
 
-    // Armor reduces damage
     let dmg = amount * (1 - this.armor);
-    if (options.defenseMelt) {
+    if (options && options.defenseMelt) {
       this.armor = Math.max(0, this.armor - options.defenseMelt);
     }
 
+    const oldHp = this.hp;
     this.hp -= dmg;
-    this.flashTimer = 0.1;
+    this.flashTimer = 0.05;
+
+    // Cash drop: check 5% thresholds crossed
+    if (this.maxHP > 0 && window.game) {
+      const oldThreshold = Math.floor((1 - oldHp / this.maxHP) * 20);
+      const newPct = Math.max(0, this.hp) / this.maxHP;
+      const newThreshold = Math.min(20, Math.floor((1 - newPct) * 20));
+      if (newThreshold > this.cashThresholdsPaid) {
+        const crossed = newThreshold - this.cashThresholdsPaid;
+        const cashPerThreshold = this.maxHP * 0.05;
+        const totalCash = Math.max(1, Math.floor(crossed * cashPerThreshold));
+        this.cashThresholdsPaid = newThreshold;
+        window.game.cash += totalCash;
+        window.game.effectsManager.addFloatingText(
+          this.x, this.y - this.radius - 5,
+          '+$' + totalCash, '#44ff44'
+        );
+      }
+    }
 
     if (this.hp <= 0) {
       this.hp = 0;
-      this.alive = false;
+      this.dying = true;
+      this.deathTimer = 0.3;
+      if (window.game) window.game.sound.play('death');
     }
   }
 
@@ -105,15 +125,20 @@ class Enemy {
   }
 
   update(dt, path) {
-    if (!this.alive || this.reachedEnd) return;
-
-    // Stun
-    if (this.stunTimer > 0) {
-      this.stunTimer -= dt;
+    // Death animation
+    if (this.dying) {
+      this.deathTimer -= dt;
+      if (this.deathTimer <= 0) {
+        this.alive = false;
+        this.dying = false;
+      }
       return;
     }
 
-    // Burn tick
+    if (!this.alive || this.reachedEnd) return;
+
+    if (this.stunTimer > 0) { this.stunTimer -= dt; return; }
+
     if (this.burnTimer > 0) {
       this.burnTimer -= dt;
       this.burnTickTimer -= dt;
@@ -123,12 +148,10 @@ class Enemy {
       }
     }
 
-    // Health regen
     if (this.healthRegen && this.hp < this.maxHP) {
       this.hp = Math.min(this.maxHP, this.hp + this.maxHP * 0.01 * dt);
     }
 
-    // Slow
     let currentSpeed = this.baseSpeed;
     if (this.slowTimer > 0) {
       this.slowTimer -= dt;
@@ -137,17 +160,12 @@ class Enemy {
       this.slowFactor = 1;
     }
 
-    // Move along path
     const moveAmount = ENEMY_BASE_SPEED * currentSpeed * dt;
     this.distanceTraveled += moveAmount;
     let remaining = moveAmount;
 
     while (remaining > 0 && this.pathIndex < path.length - 1) {
-      const a = path[this.pathIndex];
       const b = path[this.pathIndex + 1];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const segLen = Math.sqrt(dx * dx + dy * dy);
-
       const curDx = b.x - this.x, curDy = b.y - this.y;
       const distToNext = Math.sqrt(curDx * curDx + curDy * curDy);
 
@@ -164,53 +182,148 @@ class Enemy {
       }
     }
 
-    if (this.pathIndex >= path.length - 1) {
-      this.reachedEnd = true;
-    }
-
-    // Flash timer
+    if (this.pathIndex >= path.length - 1) this.reachedEnd = true;
     if (this.flashTimer > 0) this.flashTimer -= dt;
   }
 
-  draw(ctx, canDetectHidden) {
-    if (!this.alive) return;
-    if (this.hidden && !canDetectHidden) return;
+  draw(ctx) {
+    if (!this.alive && !this.dying) return;
+    if (this.hidden && !this._drawForced) return;
 
     ctx.save();
-    ctx.globalAlpha = this.hidden ? 0.4 : 1.0;
 
-    // Body
+    if (this.dying) {
+      const pct = this.deathTimer / 0.3;
+      ctx.globalAlpha = pct * (this.hidden ? 0.4 : 1.0);
+      ctx.translate(this.x, this.y);
+      ctx.scale(pct, pct);
+      ctx.translate(-this.x, -this.y);
+    } else {
+      ctx.globalAlpha = this.hidden ? 0.4 : 1.0;
+    }
+
+    var r = this.radius;
+    var cx = this.x, cy = this.y;
+    var baseColor = this.flashTimer > 0 ? '#ffffff' : this.color;
+
+    // Darken helper
+    var darker = function(hex, amt) {
+      var num = parseInt(hex.slice(1), 16);
+      var R = Math.max(0, (num >> 16) - amt);
+      var G = Math.max(0, ((num >> 8) & 0xff) - amt);
+      var B = Math.max(0, (num & 0xff) - amt);
+      return '#' + ((1 << 24) + (R << 16) + (G << 8) + B).toString(16).slice(1);
+    };
+    var lighter = function(hex, amt) {
+      var num = parseInt(hex.slice(1), 16);
+      var R = Math.min(255, (num >> 16) + amt);
+      var G = Math.min(255, ((num >> 8) & 0xff) + amt);
+      var B = Math.min(255, (num & 0xff) + amt);
+      return '#' + ((1 << 24) + (R << 16) + (G << 8) + B).toString(16).slice(1);
+    };
+
+    var bodyW = r * 1.2;
+    var bodyH = r * 1.4;
+    var headR = r * 0.5;
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fillStyle = this.flashTimer > 0 ? '#ffffff' : this.color;
+    ctx.ellipse(cx + 2, cy + 2, bodyW * 0.8, bodyH * 0.6, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Boss outline
+    // Arms (blocky rectangles to the sides)
+    var armW = r * 0.3;
+    var armH = r * 0.7;
+    ctx.fillStyle = darker(baseColor, 30);
+    ctx.fillRect(cx - bodyW - armW * 0.5, cy - armH * 0.3, armW, armH);
+    ctx.fillRect(cx + bodyW - armW * 0.5, cy - armH * 0.3, armW, armH);
+
+    // Body (blocky rectangle)
+    ctx.fillStyle = baseColor;
+    ctx.fillRect(cx - bodyW * 0.5, cy - bodyH * 0.4, bodyW, bodyH * 0.8);
+    // Body shading
+    ctx.fillStyle = darker(baseColor, 20);
+    ctx.fillRect(cx - bodyW * 0.5, cy + bodyH * 0.1, bodyW, bodyH * 0.3);
+
+    // Head (square with rounded corners for Roblox look)
+    var hx = cx - headR, hy = cy - bodyH * 0.4 - headR * 1.3;
+    ctx.fillStyle = lighter(baseColor, 15);
+    ctx.beginPath();
+    ctx.moveTo(hx + 2, hy);
+    ctx.lineTo(hx + headR * 2 - 2, hy);
+    ctx.quadraticCurveTo(hx + headR * 2, hy, hx + headR * 2, hy + 2);
+    ctx.lineTo(hx + headR * 2, hy + headR * 2 - 2);
+    ctx.quadraticCurveTo(hx + headR * 2, hy + headR * 2, hx + headR * 2 - 2, hy + headR * 2);
+    ctx.lineTo(hx + 2, hy + headR * 2);
+    ctx.quadraticCurveTo(hx, hy + headR * 2, hx, hy + headR * 2 - 2);
+    ctx.lineTo(hx, hy + 2);
+    ctx.quadraticCurveTo(hx, hy, hx + 2, hy);
+    ctx.fill();
+
+    // Eyes (two dark dots)
+    ctx.fillStyle = '#111';
+    ctx.fillRect(hx + headR * 0.4, hy + headR * 0.6, headR * 0.3, headR * 0.3);
+    ctx.fillRect(hx + headR * 1.3, hy + headR * 0.6, headR * 0.3, headR * 0.3);
+
+    // Armor plates for armored types
+    if (this.armor > 0) {
+      ctx.fillStyle = 'rgba(180,180,200,0.6)';
+      ctx.fillRect(cx - bodyW * 0.45, cy - bodyH * 0.35, bodyW * 0.9, bodyH * 0.3);
+      ctx.strokeStyle = '#888';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(cx - bodyW * 0.45, cy - bodyH * 0.35, bodyW * 0.9, bodyH * 0.3);
+    }
+
+    // Boss crown
     if (this.boss) {
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = '#ffcc00';
+      ctx.fillStyle = '#ffcc00';
+      var crownY = hy - 4;
+      ctx.beginPath();
+      ctx.moveTo(hx - 1, crownY + 5);
+      ctx.lineTo(hx, crownY);
+      ctx.lineTo(hx + headR * 0.5, crownY + 3);
+      ctx.lineTo(hx + headR, crownY - 1);
+      ctx.lineTo(hx + headR * 1.5, crownY + 3);
+      ctx.lineTo(hx + headR * 2, crownY);
+      ctx.lineTo(hx + headR * 2 + 1, crownY + 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#cc9900';
+      ctx.lineWidth = 0.5;
       ctx.stroke();
     }
 
     // Burn effect
-    if (this.burnTimer > 0) {
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.radius + 3, 0, Math.PI * 2);
+    if (this.burnTimer > 0 && !this.dying) {
       ctx.strokeStyle = 'rgba(255,100,0,0.6)';
       ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, bodyW * 0.9, bodyH * 0.7, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
 
-    // HP bar
-    if (this.hp < this.maxHP) {
-      const barW = this.radius * 2.5;
-      const barH = 4;
-      const barX = this.x - barW / 2;
-      const barY = this.y - this.radius - 8;
+    // Burn-immune glow (molten types)
+    if (this.burnImmune) {
+      ctx.fillStyle = 'rgba(255,80,0,0.15)';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, bodyW * 0.8, bodyH * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Health bar
+    if (!this.dying && this.hp < this.maxHP) {
+      var barW = r * 2.5;
+      var barH = 3;
+      var barX = cx - barW / 2;
+      var barY = hy - (this.boss ? 10 : 5);
+      ctx.fillStyle = '#222';
+      ctx.fillRect(barX - 0.5, barY - 0.5, barW + 1, barH + 1);
       ctx.fillStyle = '#333';
       ctx.fillRect(barX, barY, barW, barH);
-      ctx.fillStyle = this.hp / this.maxHP > 0.5 ? '#4c4' : this.hp / this.maxHP > 0.25 ? '#cc4' : '#c44';
-      ctx.fillRect(barX, barY, barW * (this.hp / this.maxHP), barH);
+      var pct = this.hp / this.maxHP;
+      ctx.fillStyle = pct > 0.5 ? '#4c4' : pct > 0.25 ? '#cc4' : '#c44';
+      ctx.fillRect(barX, barY, barW * pct, barH);
     }
 
     ctx.restore();
@@ -222,8 +335,10 @@ class EnemyManager {
     this.enemies = [];
     this.spawnQueue = [];
     this.spawnTimer = 0;
-    this.spawnInterval = 0.5; // seconds between spawns
+    this.spawnInterval = 0.5;
     this.waveActive = false;
+    this.path = null;
+    this.hpScale = 1;
   }
 
   startWave(waveData, hpScale, path) {
@@ -240,7 +355,6 @@ class EnemyManager {
   }
 
   update(dt) {
-    // Spawn enemies
     if (this.spawnQueue.length > 0) {
       this.spawnTimer -= dt;
       if (this.spawnTimer <= 0) {
@@ -253,15 +367,11 @@ class EnemyManager {
       }
     }
 
-    // Update all enemies
-    for (const e of this.enemies) {
-      e.update(dt, this.path);
-    }
+    for (const e of this.enemies) e.update(dt, this.path);
 
-    // Check for dead enemies that spawn on death
     const newEnemies = [];
     for (const e of this.enemies) {
-      if (!e.alive && e.spawnsOnDeath && !e._spawned) {
+      if (e.dying && !e._spawned && e.spawnsOnDeath) {
         e._spawned = true;
         for (let i = 0; i < e.spawnsOnDeath.count; i++) {
           const spawn = new Enemy(e.spawnsOnDeath.type, [], this.hpScale);
@@ -274,17 +384,17 @@ class EnemyManager {
     }
     this.enemies.push(...newEnemies);
 
-    // Remove dead enemies (after a delay for particles)
-    this.enemies = this.enemies.filter(e => e.alive || e.reachedEnd);
+    this.enemies = this.enemies.filter(e => e.alive || e.dying || e.reachedEnd);
 
-    // Check wave completion
-    if (this.waveActive && this.spawnQueue.length === 0 && this.enemies.every(e => !e.alive || e.reachedEnd)) {
+    if (this.waveActive && this.spawnQueue.length === 0 &&
+        this.enemies.every(e => (!e.alive && !e.dying) || e.reachedEnd)) {
       this.waveActive = false;
     }
   }
 
   isWaveComplete() {
-    return !this.waveActive && this.spawnQueue.length === 0 && this.enemies.filter(e => e.alive && !e.reachedEnd).length === 0;
+    return !this.waveActive && this.spawnQueue.length === 0 &&
+           this.enemies.filter(e => (e.alive || e.dying) && !e.reachedEnd).length === 0;
   }
 
   getReachedEnd() {
@@ -293,13 +403,15 @@ class EnemyManager {
     return reached;
   }
 
-  draw(ctx) {
-    for (const e of this.enemies) {
-      e.draw(ctx, true); // always draw for now; towers handle detection
-    }
+  getTargetableEnemies() {
+    return this.enemies.filter(e => e.alive && !e.dying && !e.reachedEnd);
   }
 
-  getAliveEnemies() {
-    return this.enemies.filter(e => e.alive && !e.reachedEnd);
+  draw(ctx) {
+    for (const e of this.enemies) {
+      e._drawForced = true;
+      e.draw(ctx);
+      e._drawForced = false;
+    }
   }
 }
