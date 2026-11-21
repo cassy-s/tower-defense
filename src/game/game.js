@@ -38,7 +38,7 @@ export class Game {
     this.nextSpawnPath = 0;
     this.autoTimer = 0;
     this.seen = new Set();
-    this.stats = { kills: 0, leaked: 0, earned: 0, spent: 0 };
+    this.stats = { kills: 0, leaked: 0, earned: 0, spent: 0, built: 0 };
     this.listeners = {};
   }
 
@@ -82,6 +82,7 @@ export class Game {
     this.cash -= t.def.cost;
     this.stats.spent += t.def.cost;
     this.towers.push(t);
+    this.stats.built++;
     this.emit('towerPlaced', { tower: t });
     return t;
   }

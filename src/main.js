@@ -117,7 +117,7 @@ class App {
     this.updateInsets();
     this.bindGameSounds(g);
     g.on('gameOver', ({ won }) => this.onGameOver(won));
-    this.ui.hint('Pick a tower on the right, then click the grass to deploy it. Press <b>START</b> when ready.');
+    this.ui.hint('Pick a tower on the right, then click open ground to deploy it. Press <b>START</b> when ready.');
     this.firstPlace = true;
   }
 

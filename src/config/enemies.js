@@ -106,13 +106,13 @@ export const ENEMIES = {
   },
   colossus: {
     name: 'The Dread Sovereign', blurb: 'FINAL BOSS. Its ground-slam stuns every tower nearby.',
-    hp: 16000, speed: 1.0, bounty: 1000, leak: 999, threat: 1500, armor: 0.3, size: 3.2, boss: true,
+    hp: 16000, speed: 1.0, bounty: 1000, leak: 999, threat: 1500, armor: 0.3, size: 3.6, boss: true,
     abilities: [
       { type: 'slam', every: 9, radius: 11, stun: 2.5 },
       { type: 'enrage', below: 0.3, mult: 1.5 },
       { type: 'summon', every: 25, enemies: ['brute'], count: 2 },
     ],
-    look: { body: 'knight', crown: true, shield: true, skin: ['#101216'], shirt: ['#24272e'], pants: ['#1e2127'], trim: '#4a5262', crystal: '#3ff0d8', weapon: 'sword', glow: '#bffcff', cloak: '#1a2a3a' },
+    look: { body: 'knight', crown: true, shield: true, skin: ['#101216'], shirt: ['#24272e'], pants: ['#1e2127'], trim: '#d6a93a', crystal: '#3ff0d8', weapon: 'sword', glow: '#bffcff', cloak: '#1a2a3a' },
   },
 };
 

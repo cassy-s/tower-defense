@@ -340,7 +340,7 @@ export class UI {
     $('#toast-stack').appendChild(el);
     requestAnimationFrame(() => el.classList.add('in'));
     this.toasts.push({ el, until: performance.now() + ms });
-    while (this.toasts.length > 4) this.dropToast(this.toasts[0]);
+    while (this.toasts.length > 3) this.dropToast(this.toasts[0]);
   }
   dropToast(t) {
     this.toasts.splice(this.toasts.indexOf(t), 1);
@@ -381,7 +381,7 @@ export class UI {
       <div><span>Waves</span><b>${game.wave} / ${game.maxWaves}</b></div>
       <div><span>Zombies killed</span><b>${fmt(game.stats.kills)}</b></div>
       <div><span>Cash earned</span><b>$${fmt(game.stats.earned)}</b></div>
-      <div><span>Towers built</span><b>${game.towers.length}</b></div>
+      <div><span>Towers built</span><b>${game.stats.built}</b></div>
       ${mvp ? `<div class="mvp"><img src="${this.app.portraits.tower(mvp.type, mvp.level)}" alt=""><span>MVP</span><b>${mvp.def.name} · ${fmt(mvp.kills)} kills</b></div>` : ''}`;
   }
 }
