@@ -156,7 +156,7 @@ export class Enemy {
       const r2 = a.radius * a.radius;
       const healed = [];
       for (const e of game.enemies) {
-        if (!e.alive || e === this) continue;
+        if (!e.alive || e === this || e.boss) continue;
         if ((e.x - this.x) ** 2 + (e.z - this.z) ** 2 > r2) continue;
         if (e.hp >= e.maxHp) continue;
         e.hp = Math.min(e.maxHp, e.hp + e.maxHp * a.pct);

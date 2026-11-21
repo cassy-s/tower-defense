@@ -12,7 +12,7 @@ export const ABILITIES = {
     name: 'Airstrike', cooldown: 40,
     desc: 'Bombers hit the 6 zombies furthest along for 150 damage each.',
     use(game, tower) {
-      const targets = game.enemies.filter((e) => e.alive).sort((a, b) => a.remaining - b.remaining).slice(0, 6);
+      const targets = game.enemies.filter((e) => e.alive && !e.flying).sort((a, b) => a.remaining - b.remaining).slice(0, 6);
       game.emit('airstrike', { tower, targets: targets.map((e) => ({ x: e.x, z: e.z })) });
       targets.forEach((e, i) => {
         const x = e.x, z = e.z;
@@ -108,7 +108,7 @@ export class Tower {
     const cd = this.effectiveCooldown;
     let per = s.damage;
     if (s.attack === 'spread') per *= s.pellets;
-    if (s.burst > 1) return (per * s.burst) / (cd + s.burstDelay * (s.burst - 1));
+    if (s.burst > 1) return (per * s.burst) / Math.max(cd, s.burstDelay * (s.burst - 1));
     return per / cd;
   }
 

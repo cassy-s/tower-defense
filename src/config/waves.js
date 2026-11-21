@@ -17,15 +17,15 @@ import { mulberry32 } from '../game/rng.js';
 export const DIFFICULTIES = {
   easy:   { name: 'Easy',   waves: 30, startCash: 650, lives: 150, hpMult: 1.0,  cashMult: 1.1, color: '#5ccf4a' },
   medium: { name: 'Medium', waves: 40, startCash: 650, lives: 100, hpMult: 1.2,  cashMult: 1.0, color: '#f2b233' },
-  hard:   { name: 'Hard',   waves: 50, startCash: 650, lives: 50,  hpMult: 1.45, cashMult: 0.9, color: '#e8483a' },
+  hard:   { name: 'Hard',   waves: 50, startCash: 650, lives: 50,  hpMult: 1.45, cashMult: 1.0, color: '#e8483a' },
 };
 export const DIFFICULTY_ORDER = Object.keys(DIFFICULTIES);
 
 /** Cash paid when a wave is cleared. */
-export const waveBonus = (w) => 100 + 10 * w;
+export const waveBonus = (w) => 100 + 12 * w;
 
 /** Extra HP multiplier for late waves (on top of the difficulty multiplier). */
-export const waveHpScale = (w) => 1 + Math.max(0, w - 25) * 0.06;
+export const waveHpScale = (w) => 1 + Math.max(0, w - 25) * 0.035;
 
 const g = (type, count, gap, delay = 0, mods) => ({ type, count, gap, delay, ...(mods ? { mods } : {}) });
 
@@ -57,7 +57,7 @@ const BOSS_WAVES = {
 // When each zombie can start appearing in generated waves.
 export const UNLOCK = {
   shambler: 1, runner: 3, crawler: 5, bloater: 7, hazmat: 9, shade: 11, brute: 12,
-  riot: 13, spitter: 15, screamer: 17, surgeon: 19, carrion: 21, juggernaut: 26, revenant: 32,
+  riot: 13, spitter: 15, screamer: 17, surgeon: 19, carrion: 21, juggernaut: 26, revenant: 34,
 };
 
 function generated(w) {
@@ -86,14 +86,21 @@ function generated(w) {
     used.add(t);
     const share = budget / nGroups * (0.7 + rng() * 0.6);
     const def = ENEMIES[t];
-    const count = Math.max(1, Math.min(70, Math.round(share / def.threat)));
+    const cap = def.flying ? 26 : 45;
+    const count = Math.max(1, Math.min(cap, Math.round(share / def.threat)));
     const baseGap = def.threat >= 10 ? 2.2 : def.threat >= 4 ? 0.9 : 0.42;
     const gap = Math.max(def.threat >= 10 ? 0.9 : 0.16, baseGap * (1 - Math.min(0.6, w / 80)));
     const mods = [];
-    if (w >= 20 && rng() < Math.min(0.5, (w - 18) * 0.03)) mods.push('fortified');
-    if (w >= 24 && def.speed < 4 && rng() < 0.2) mods.push('swift');
+    if (w >= 22 && rng() < Math.min(0.3, (w - 20) * 0.02)) mods.push('fortified');
+    if (w >= 24 && def.speed < 4 && def.threat < 40 && !mods.length && rng() < 0.2) mods.push('swift');
     groups.push(g(t, count, +gap.toFixed(2), +delay.toFixed(1), mods.length ? mods : undefined));
     delay += Math.min(10, count * gap * (0.35 + rng() * 0.3));
+  }
+  // Keep waves smooth: never drop far below the budget.
+  const total = groups.reduce((s, grp) => s + grp.count * ENEMIES[grp.type].threat, 0);
+  if (total < budget * 0.8) {
+    const k = (budget * 0.8) / total;
+    for (const grp of groups) grp.count = Math.min(ENEMIES[grp.type].flying ? 26 : 55, Math.max(grp.count, Math.round(grp.count * k)));
   }
   return groups;
 }

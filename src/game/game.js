@@ -155,9 +155,10 @@ export class Game {
     let income = 0;
     for (const t of this.towers) if (t.stats.income) income += t.stats.income;
     this.addCash(bonus, 'wave');
+    income = Math.round(income * this.difficulty.cashMult);
     if (income) { this.addCash(income, 'income'); for (const t of this.towers) if (t.stats.income) this.emit('income', { tower: t, amount: t.stats.income }); }
     this.emit('waveEnd', { wave: w, bonus, income });
-    if (w >= this.maxWaves && this.waveOpen.size === 0) {
+    if (this.wave >= this.maxWaves && this.waveOpen.size === 0 && this.spawnQueue.length === 0) {
       this.state = 'won';
       this.emit('gameOver', { won: true });
     } else if (this.autoStart && this.waveOpen.size === 0) this.autoTimer = 1.2;
@@ -181,11 +182,12 @@ export class Game {
     this.stats.leaked++;
     this.lives = Math.max(0, this.lives - e.leak);
     this.emit('leak', { enemy: e, lives: this.lives });
-    this.resolveEnemy(e);
     if (this.lives <= 0 && this.state === 'playing') {
       this.state = 'lost';
       this.emit('gameOver', { won: false });
+      return;
     }
+    this.resolveEnemy(e);
   }
 
   // -------------------------------------------------------- projectiles ---
@@ -201,7 +203,7 @@ export class Game {
     for (const e of this.enemies) {
       if (!e.alive || (e.flying && !hitFlying)) continue;
       const d = (e.x - x) ** 2 + (e.z - z) ** 2;
-      if (d <= r2 + e.radius) hits.push([d, e]);
+      if (d <= (radius + e.radius) ** 2) hits.push([d, e]);
     }
     hits.sort((a, b) => a[0] - b[0]);
     for (let i = 0; i < Math.min(maxHits, hits.length); i++) {

@@ -70,7 +70,7 @@ export const ENEMIES = {
   },
   carrion: {
     name: 'Carrion', blurb: 'Flying. Only towers that can hit flyers can shoot it.',
-    hp: 16, speed: 4.8, bounty: 5, leak: 2, threat: 4, flying: true,
+    hp: 16, speed: 4.8, bounty: 5, leak: 2, threat: 7, flying: true,
     look: { body: 'flyer', skin: ['#3a3a3a'], shirt: ['#5a2a2a'], pants: ['#222'], glow: '#ff4a3a' },
   },
   brute: {
@@ -94,8 +94,8 @@ export const ENEMIES = {
   // ---------------------------------------------------------------- bosses --
   abomination: {
     name: 'Abomination', blurb: 'BOSS. Stitched-together horror. Enrages at half health and bursts into Brutes.',
-    hp: 1100, speed: 1.5, bounty: 150, leak: 50, threat: 120, armor: 0.2, size: 2.4, boss: true,
-    abilities: [{ type: 'enrage', below: 0.5, mult: 1.6 }, { type: 'deathSpawn', enemy: 'brute', count: 3 }],
+    hp: 750, speed: 1.5, bounty: 150, leak: 30, threat: 120, armor: 0.2, size: 2.4, boss: true,
+    abilities: [{ type: 'enrage', below: 0.5, mult: 1.6 }, { type: 'deathSpawn', enemy: 'brute', count: 2 }],
     look: { body: 'abomination', cracks: true, skin: ['#7fae8e'], shirt: ['#4a4c52'], pants: ['#3a3c40'] },
   },
   necropriest: {
@@ -110,7 +110,7 @@ export const ENEMIES = {
     abilities: [
       { type: 'slam', every: 9, radius: 11, stun: 2.5 },
       { type: 'enrage', below: 0.3, mult: 1.5 },
-      { type: 'summon', every: 12, enemies: ['revenant'], count: 1 },
+      { type: 'summon', every: 25, enemies: ['brute'], count: 2 },
     ],
     look: { body: 'knight', crown: true, shield: true, skin: ['#101216'], shirt: ['#24272e'], pants: ['#1e2127'], trim: '#4a5262', crystal: '#3ff0d8', weapon: 'sword', glow: '#bffcff', cloak: '#1a2a3a' },
   },

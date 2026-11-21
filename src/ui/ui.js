@@ -160,7 +160,7 @@ export class UI {
     this.hint(null);
     game.on('newEnemy', ({ type }) => {
       const e = ENEMIES[type];
-      if (game.wave <= 1 && type === 'shambler') return;
+      if (type === 'shambler') return;
       this.toast(`<img src="${this.app.portraits.zombie(type)}" alt=""><div><small>${e.boss ? 'BOSS INCOMING' : 'NEW ZOMBIE'}</small><b>${e.name}</b><span>${e.blurb}</span></div>`, e.boss ? 'boss' : 'intro', 6500);
     });
     game.on('waveStart', ({ wave }) => {

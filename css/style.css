@@ -276,7 +276,7 @@ body[data-screen='title'] #vignette, body[data-screen='maps'] #vignette, body[da
 
 /* Inspector */
 .inspector { position: absolute; left: 14px; top: 76px; width: 300px; max-height: calc(100vh - 92px); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; animation: slideIn 0.18s ease-out; }
-@keyframes slideIn { from { transform: translateX(-30px); opacity: 0; } }
+@keyframes slideIn { from { transform: translateX(-30px); } }
 .insp-head { --bg1: #ffb04a; --bg2: #d86a1a; display: flex; align-items: center; gap: 10px; }
 .insp-head img { width: 78px; height: 78px; border-radius: 14px; border: 3px solid var(--ink); background: radial-gradient(circle at 50% 30%, var(--bg1), var(--bg2) 75%); object-fit: contain; box-shadow: 0 3px 0 var(--ink); }
 .insp-title { flex: 1; min-width: 0; }
@@ -335,7 +335,7 @@ body[data-screen='title'] #vignette, body[data-screen='maps'] #vignette, body[da
 .hint b { color: var(--gold); }
 
 /* Toasts */
-.toast-stack { position: absolute; top: 132px; left: 16px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.toast-stack { position: absolute; bottom: 74px; left: 16px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .inspector:not(.hidden) ~ .toast-stack { left: 330px; }
 .toast { display: flex; align-items: center; gap: 10px; max-width: 340px; padding: 8px 12px 8px 8px; border-radius: 14px; border: 3px solid var(--ink); background: linear-gradient(180deg, #2a3646, #18202a); box-shadow: 0 4px 0 var(--ink); transform: translateX(-120%); transition: transform 0.28s cubic-bezier(0.2, 1.4, 0.4, 1); }
 .toast.in { transform: none; }
