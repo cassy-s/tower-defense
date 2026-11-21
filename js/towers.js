@@ -39,6 +39,11 @@ class Tower {
     this.beamTarget = null;
 
     this.selected = false;
+
+    // Shooting animation state
+    this.recoilTimer = 0;
+    this.recoilAmount = 0;
+    this.fireScaleTimer = 0;
   }
 
   getRange() {
@@ -80,9 +85,22 @@ class Tower {
   }
 
   update(dt, enemies, effectsManager, commanderBuffs) {
-    const s = this.stats;
+    var s = this.stats;
 
-    let firerateMult = 1;
+    // Decay recoil animation
+    if (this.recoilTimer > 0) {
+      this.recoilTimer -= dt;
+      if (this.recoilTimer <= 0) {
+        this.recoilTimer = 0;
+        this.recoilAmount = 0;
+      }
+    }
+    if (this.fireScaleTimer > 0) {
+      this.fireScaleTimer -= dt;
+      if (this.fireScaleTimer <= 0) this.fireScaleTimer = 0;
+    }
+
+    var firerateMult = 1;
     for (const buff of commanderBuffs) {
       const dx = this.x - buff.x, dy = this.y - buff.y;
       if (dx * dx + dy * dy <= buff.range * buff.range) {
@@ -216,8 +234,13 @@ class Tower {
   }
 
   hitscan(target, effectsManager) {
-    const s = this.stats;
-    const color = this.getTracerColor();
+    var s = this.stats;
+    var color = this.getTracerColor();
+
+    // Trigger recoil animation
+    this.recoilTimer = 0.12;
+    this.recoilAmount = 5;
+    this.fireScaleTimer = 0.08;
 
     effectsManager.addMuzzleFlash(this.x, this.y, color);
 
@@ -320,21 +343,43 @@ class Tower {
   }
 
   draw(ctx) {
-    const drawSize = TILE_SIZE;
+    var drawSize = TILE_SIZE;
+
+    // Calculate recoil offset along the angle direction (kick backward)
+    var recoilOffset = 0;
+    if (this.recoilTimer > 0) {
+      var recoilPct = this.recoilTimer / 0.12;
+      recoilOffset = this.recoilAmount * recoilPct;
+    }
+    var recoilDx = -Math.cos(this.angle) * recoilOffset;
+    var recoilDy = -Math.sin(this.angle) * recoilOffset;
+
+    // Calculate scale pulse
+    var scaleBonus = 0;
+    if (this.fireScaleTimer > 0) {
+      var scalePct = this.fireScaleTimer / 0.08;
+      scaleBonus = 0.12 * scalePct;
+    }
+    var totalScale = 1 + scaleBonus;
 
     if (this.image && this.image.complete) {
       ctx.save();
-      ctx.translate(this.x, this.y);
+      ctx.translate(this.x + recoilDx, this.y + recoilDy);
       if (this.stats.targetType !== 'none') ctx.rotate(this.angle);
+      ctx.scale(totalScale, totalScale);
       ctx.drawImage(this.image, -drawSize / 2, -drawSize / 2, drawSize, drawSize);
       ctx.restore();
     } else {
+      ctx.save();
+      ctx.translate(this.x + recoilDx, this.y + recoilDy);
+      ctx.scale(totalScale, totalScale);
       ctx.fillStyle = '#446';
-      ctx.fillRect(this.x - drawSize / 2 + 4, this.y - drawSize / 2 + 4, drawSize - 8, drawSize - 8);
+      ctx.fillRect(-drawSize / 2 + 4, -drawSize / 2 + 4, drawSize - 8, drawSize - 8);
       ctx.fillStyle = '#aac';
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(this.name.slice(0, 3), this.x, this.y + 4);
+      ctx.fillText(this.name.slice(0, 3), 0, 4);
+      ctx.restore();
     }
 
     if (this.selected) {
