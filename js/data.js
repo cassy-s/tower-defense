@@ -104,7 +104,7 @@ const TOWERS = {
   },
   minigunner: {
     name: "Minigunner", cost: 1850, role: "Offense", placement: "ground",
-    unlockCost: 8000, sprite: "assets/towers/minigunner.png", portrait: "assets/towers/minigunner_portrait.png", hitboxRadius: 28,
+    unlockCost: 8000, sprite: "assets/towers/minigunner.png", portrait: null, hitboxRadius: 28,
     base: { damage: 2, firerate: 0.15, range: 16, targetType: "single", revUpTime: 1.4, detectHidden: false },
     upgrades: [
       { name: "Improved Handling", cost: 350, apply: s => { s.firerate = 0.12; s.revUpTime = 1.2; s.detectHidden = true; } },
@@ -115,7 +115,7 @@ const TOWERS = {
   },
   accel: {
     name: "Accelerator", cost: 7500, role: "Offense", placement: "ground",
-    unlockCost: 2500, sprite: "assets/towers/accel.png", portrait: "assets/towers/accel_portrait.png", hitboxRadius: 20,
+    unlockCost: 2500, sprite: "assets/towers/accel.png", portrait: null, hitboxRadius: 20,
     base: { damage: 12, firerate: 0.25, range: 19, targetType: "beam", chargeUpTime: 6.5, beamCooldown: 2.5, overcharge: 9000, placementLimit: 5, detectHidden: false, detectLead: true, stunImmune: true },
     upgrades: [
       { name: "Extra Juice", cost: 2000, apply: s => { s.damage += 3; s.detectHidden = true; s.overcharge += 3000; } },

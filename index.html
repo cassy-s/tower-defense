@@ -14,6 +14,11 @@
   <div id="main-menu" class="overlay active">
     <div class="menu-content">
       <h1 class="game-title">TOWER DEFENSE</h1>
+      <div class="title-decoration">
+        <span class="title-line"></span>
+        <span class="title-diamond"></span>
+        <span class="title-line"></span>
+      </div>
       <p class="subtitle">Defend your base against waves of enemies</p>
       <button class="btn btn-primary" id="btn-play">PLAY</button>
     </div>
@@ -26,22 +31,34 @@
       <p class="section-subtitle">Choose your difficulty</p>
       <div class="mode-grid">
         <button class="btn btn-mode" data-mode="casual">
-          <span class="mode-icon">&#127795;</span>
-          <span class="mode-name">CASUAL</span>
-          <span class="mode-info">25 Waves</span>
-          <span class="mode-difficulty">EASY</span>
+          <div class="mode-banner">
+            <span class="mode-icon">&#127795;</span>
+            <span class="mode-name">CASUAL</span>
+            <span class="mode-info">25 Waves</span>
+          </div>
+          <div class="mode-footer">
+            <span class="mode-difficulty">EASY</span>
+          </div>
         </button>
         <button class="btn btn-mode" data-mode="molten">
-          <span class="mode-icon">&#128293;</span>
-          <span class="mode-name">MOLTEN</span>
-          <span class="mode-info">35 Waves</span>
-          <span class="mode-difficulty">HARD</span>
+          <div class="mode-banner">
+            <span class="mode-icon">&#128293;</span>
+            <span class="mode-name">MOLTEN</span>
+            <span class="mode-info">35 Waves</span>
+          </div>
+          <div class="mode-footer">
+            <span class="mode-difficulty">HARD</span>
+          </div>
         </button>
         <button class="btn btn-mode" data-mode="fallen">
-          <span class="mode-icon">&#9760;</span>
-          <span class="mode-name">FALLEN</span>
-          <span class="mode-info">40 Waves</span>
-          <span class="mode-difficulty">EXTREME</span>
+          <div class="mode-banner">
+            <span class="mode-icon">&#9760;</span>
+            <span class="mode-name">FALLEN</span>
+            <span class="mode-info">40 Waves</span>
+          </div>
+          <div class="mode-footer">
+            <span class="mode-difficulty">EXTREME</span>
+          </div>
         </button>
       </div>
       <button class="btn btn-back" id="btn-back-mode">BACK</button>
@@ -121,8 +138,11 @@
     <div class="menu-content">
       <h2 id="game-over-title">GAME OVER</h2>
       <p id="game-over-info">You survived 10 waves</p>
-      <button class="btn btn-primary" id="btn-retry">PLAY AGAIN</button>
-      <button class="btn btn-back" id="btn-menu">MAIN MENU</button>
+      <div id="game-over-stats" class="game-over-stats"></div>
+      <div class="game-over-buttons">
+        <button class="btn btn-primary" id="btn-retry">PLAY AGAIN</button>
+        <button class="btn btn-back" id="btn-menu">MAIN MENU</button>
+      </div>
     </div>
   </div>
 </div>

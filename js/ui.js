@@ -7,6 +7,8 @@ class UI {
     this.selectedLoadout = [];
     this.placingTower = null;
     this._lastCash = 0;
+    this._upgradeRefreshTimer = null;
+    this._currentUpgradeTower = null;
     this.setupMenuListeners();
   }
 
@@ -85,6 +87,7 @@ class UI {
     this.showScreen('loadout-screen');
     this.renderTowerGrid();
     this.updateLoadoutSlots();
+    this.clearTowerPreview();
   }
 
   renderTowerGrid() {
@@ -98,7 +101,7 @@ class UI {
       card.className = 'tower-card';
       card.dataset.tower = key;
       var portraitSrc = def.portrait || def.sprite;
-      card.innerHTML = '<img src="' + portraitSrc + '" alt="' + def.name + '">' +
+      card.innerHTML = '<img class="tower-card-img" src="' + portraitSrc + '" alt="' + def.name + '">' +
         '<div class="tower-card-name">' + def.name + '</div>' +
         '<div class="tower-card-cost">$' + def.cost + '</div>' +
         '<div class="tower-card-role">' + def.role + '</div>';
@@ -150,21 +153,46 @@ class UI {
     var def = TOWERS[key];
     var s = def.base;
     var preview = document.getElementById('tower-preview');
-    var html = '<strong style="color:#ffcc00;font-size:0.95rem;">' + def.name + '</strong>';
-    html += ' <span style="color:#555570;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.1em;">' + def.role + '</span>';
-    html += '<br><span style="color:#8888aa;">Cost: </span><span style="color:#44dd66;font-weight:700;">$' + def.cost + '</span>';
-    if (s.damage) html += ' <span style="color:#555570;">|</span> <span style="color:#8888aa;">Dmg: </span><span style="color:#e8e8f0;font-weight:600;">' + s.damage + '</span>';
-    if (s.firerate) html += ' <span style="color:#555570;">|</span> <span style="color:#8888aa;">Rate: </span><span style="color:#e8e8f0;font-weight:600;">' + s.firerate + 's</span>';
-    html += ' <span style="color:#555570;">|</span> <span style="color:#8888aa;">Range: </span><span style="color:#e8e8f0;font-weight:600;">' + s.range + '</span>';
-    if (s.targetType === 'splash') html += '<br><span style="color:#8888aa;">Splash Radius: </span><span style="color:#e8e8f0;font-weight:600;">' + s.splashRadius + '</span>';
-    if (s.income) html += '<br><span style="color:#8888aa;">Income: </span><span style="color:#44dd66;font-weight:700;">$' + s.income + '/wave</span>';
-    if (s.firerateBuff) html += '<br><span style="color:#8888aa;">Buff: </span><span style="color:#4488ff;font-weight:600;">' + (s.firerateBuff * 100) + '% firerate boost</span>';
-    if (s.burnDamage) html += '<br><span style="color:#8888aa;">Burn: </span><span style="color:#ff6600;font-weight:600;">' + s.burnDamage + ' dmg/' + (s.burnDuration || 3) + 's</span>';
+    var html = '<span class="preview-name">' + def.name + '</span>';
+    html += '<span class="preview-role">' + def.role + '</span>';
+    html += '<div class="preview-stats">';
+    html += '<span class="preview-stat"><span class="preview-stat-label">Cost: </span><span class="preview-stat-value money">$' + def.cost + '</span></span>';
+    if (s.damage) {
+      html += '<span class="preview-divider">|</span>';
+      html += '<span class="preview-stat"><span class="preview-stat-label">Dmg: </span><span class="preview-stat-value">' + s.damage + '</span></span>';
+    }
+    if (s.firerate) {
+      html += '<span class="preview-divider">|</span>';
+      html += '<span class="preview-stat"><span class="preview-stat-label">Rate: </span><span class="preview-stat-value">' + s.firerate + 's</span></span>';
+    }
+    html += '<span class="preview-divider">|</span>';
+    html += '<span class="preview-stat"><span class="preview-stat-label">Range: </span><span class="preview-stat-value">' + s.range + '</span></span>';
+    if (s.targetType === 'splash') {
+      html += '<span class="preview-divider">|</span>';
+      html += '<span class="preview-stat"><span class="preview-stat-label">Splash: </span><span class="preview-stat-value">' + s.splashRadius + '</span></span>';
+    }
+    html += '</div>';
+    if (s.income) {
+      html += '<div class="preview-stats">';
+      html += '<span class="preview-stat"><span class="preview-stat-label">Income: </span><span class="preview-stat-value money">$' + s.income + '/wave</span></span>';
+      html += '</div>';
+    }
+    if (s.firerateBuff) {
+      html += '<div class="preview-stats">';
+      html += '<span class="preview-stat"><span class="preview-stat-label">Buff: </span><span class="preview-stat-value special">' + (s.firerateBuff * 100) + '% firerate boost</span></span>';
+      html += '</div>';
+    }
+    if (s.burnDamage) {
+      html += '<div class="preview-stats">';
+      html += '<span class="preview-stat"><span class="preview-stat-label">Burn: </span><span class="preview-stat-value fire">' + s.burnDamage + ' dmg/' + (s.burnDuration || 3) + 's</span></span>';
+      html += '</div>';
+    }
     preview.innerHTML = html;
   }
 
   clearTowerPreview() {
-    document.getElementById('tower-preview').innerHTML = '<span style="color:#555570;">Hover over a tower to see its stats</span>';
+    var preview = document.getElementById('tower-preview');
+    preview.innerHTML = '<span class="preview-stat-label">Hover over a tower to see its stats</span>';
   }
 
   showGameHUD() {
@@ -189,7 +217,8 @@ class UI {
         '<div class="shop-tower-info">' +
         '<div class="shop-tower-name">' + def.name + '</div>' +
         '<div class="shop-tower-cost">$' + def.cost + '</div>' +
-        '</div>';
+        '</div>' +
+        '<span class="shop-tooltip">' + def.name + ' - $' + def.cost + '</span>';
       (function(k, d) {
         div.addEventListener('click', function() {
           if (window.game.cash >= d.cost) {
@@ -208,12 +237,12 @@ class UI {
     var cashEl = document.getElementById('hud-cash');
     cashEl.textContent = '$' + Math.floor(g.cash);
     if (g.cash > this._lastCash) {
-      cashEl.style.color = '#88ffaa';
-      cashEl.style.textShadow = '0 0 8px rgba(68,221,102,0.5)';
+      cashEl.style.color = '#6affaa';
+      cashEl.style.textShadow = '0 0 10px rgba(61,220,111,0.5)';
       setTimeout(function() {
         cashEl.style.color = '';
         cashEl.style.textShadow = '';
-      }, 300);
+      }, 350);
     }
     this._lastCash = g.cash;
 
@@ -223,12 +252,14 @@ class UI {
     var hpBar = document.getElementById('hp-bar');
     if (hpBar) {
       hpBar.style.width = hpPct + '%';
+      // Smooth class-based transitions for HP bar color
+      hpBar.classList.remove('hp-critical', 'hp-warning', 'hp-good');
       if (hpPct < 25) {
-        hpBar.style.background = 'linear-gradient(90deg, #ff2233 0%, #ff4455 100%)';
+        hpBar.classList.add('hp-critical');
       } else if (hpPct < 50) {
-        hpBar.style.background = 'linear-gradient(90deg, #ff6644 0%, #ffaa44 100%)';
+        hpBar.classList.add('hp-warning');
       } else {
-        hpBar.style.background = 'linear-gradient(90deg, #ff4455 0%, #ff8866 100%)';
+        hpBar.classList.add('hp-good');
       }
     }
 
@@ -252,9 +283,42 @@ class UI {
     } else {
       waveBtn.textContent = 'START WAVE';
     }
+
+    // Auto-refresh upgrade panel afford state if open
+    if (this._currentUpgradeTower && !document.getElementById('upgrade-panel').classList.contains('hidden')) {
+      this._refreshUpgradeAfford();
+    }
+  }
+
+  _refreshUpgradeAfford() {
+    var tower = this._currentUpgradeTower;
+    if (!tower) return;
+    var def = TOWERS[tower.typeName];
+    if (!def) return;
+    var buttons = document.querySelectorAll('.upgrade-btn');
+    for (var i = 0; i < buttons.length; i++) {
+      if (i < tower.upgradeLevel) {
+        // Already purchased, no change needed
+        continue;
+      } else if (i === tower.upgradeLevel) {
+        var upg = def.upgrades[i];
+        if (this.game.cash < upg.cost) {
+          buttons[i].classList.add('cant-afford');
+          buttons[i].classList.remove('next-upgrade');
+          buttons[i].classList.add('next-upgrade');
+        } else {
+          buttons[i].classList.remove('cant-afford');
+          if (!buttons[i].classList.contains('next-upgrade')) {
+            buttons[i].classList.add('next-upgrade');
+          }
+        }
+      }
+      // Locked upgrades stay as-is
+    }
   }
 
   showUpgradePanel(tower) {
+    this._currentUpgradeTower = tower;
     var panel = document.getElementById('upgrade-panel');
     panel.classList.remove('hidden');
     document.getElementById('upgrade-tower-name').textContent = tower.name + ' Lv.' + tower.upgradeLevel;
@@ -267,7 +331,7 @@ class UI {
     if (s.firerate) html += '<div class="stat-item"><span class="stat-icon">&#9201;</span><span class="stat-value">' + s.firerate.toFixed(2) + 's</span><span class="stat-label"> rate</span></div>';
     if (s.income) html += '<div class="stat-item"><span class="stat-icon">&#128176;</span><span class="stat-value">$' + s.income + '</span><span class="stat-label"> /wave</span></div>';
     html += '</div>';
-    html += '<div style="margin-top:6px;color:#8888aa;font-size:0.72rem;">Sell: <span style="color:#ff7788;font-weight:700;">$' + tower.getSellValue() + '</span></div>';
+    html += '<div class="stat-sell">Sell value: <span class="stat-sell-value">$' + tower.getSellValue() + '</span></div>';
     stats.innerHTML = html;
 
     var list = document.getElementById('upgrade-list');
@@ -279,6 +343,7 @@ class UI {
       btn.className = 'upgrade-btn';
       if (i < tower.upgradeLevel) {
         btn.classList.add('purchased');
+        btn.innerHTML = '<span class="upg-name"><span class="upg-status">✔</span>' + upg.name + '</span><span class="upg-cost">$' + upg.cost + '</span>';
       } else if (i === tower.upgradeLevel) {
         btn.classList.add('next-upgrade');
         if (this.game.cash < upg.cost) btn.classList.add('cant-afford');
@@ -291,15 +356,17 @@ class UI {
             }
           });
         })(upg, tower, this);
+        btn.innerHTML = '<span class="upg-name">' + upg.name + '</span><span class="upg-cost">$' + upg.cost + '</span>';
       } else {
-        btn.classList.add('cant-afford');
+        btn.classList.add('locked');
+        btn.innerHTML = '<span class="upg-name">' + upg.name + '</span><span class="upg-cost">$' + upg.cost + '</span>';
       }
-      btn.innerHTML = '<span class="upg-name">' + upg.name + '</span><span class="upg-cost">$' + upg.cost + '</span>';
       list.appendChild(btn);
     }
   }
 
   hideUpgradePanel() {
+    this._currentUpgradeTower = null;
     document.getElementById('upgrade-panel').classList.add('hidden');
   }
 
@@ -309,6 +376,12 @@ class UI {
     var title = document.getElementById('game-over-title');
     title.textContent = won ? 'VICTORY!' : 'DEFEATED';
     title.className = won ? 'victory' : 'defeat';
+
+    // Set background class on game-over overlay
+    var gameOverEl = document.getElementById('game-over');
+    gameOverEl.classList.remove('victory-bg', 'defeat-bg');
+    gameOverEl.classList.add(won ? 'victory-bg' : 'defeat-bg');
+
     var info = '';
     if (won) {
       info = 'You conquered all ' + g.totalWaves + ' waves!';
@@ -316,6 +389,19 @@ class UI {
       info = 'You survived ' + g.currentWave + ' of ' + g.totalWaves + ' waves.';
     }
     document.getElementById('game-over-info').textContent = info;
+
+    // Build stats display
+    var statsEl = document.getElementById('game-over-stats');
+    var statsHtml = '';
+    statsHtml += '<div class="go-stat"><span class="go-stat-value gold-val">' + g.currentWave + '/' + g.totalWaves + '</span><span class="go-stat-label">Waves</span></div>';
+    var towersPlaced = 0;
+    if (g.towerManager && g.towerManager.towers) {
+      towersPlaced = g.towerManager.towers.length;
+    }
+    statsHtml += '<div class="go-stat"><span class="go-stat-value">' + towersPlaced + '</span><span class="go-stat-label">Towers</span></div>';
+    statsHtml += '<div class="go-stat"><span class="go-stat-value green-val">$' + Math.floor(g.cash) + '</span><span class="go-stat-label">Cash Left</span></div>';
+    statsEl.innerHTML = statsHtml;
+
     this.showScreen('game-over');
   }
 }
