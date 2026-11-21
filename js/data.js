@@ -13,7 +13,7 @@ const PATH_BUFFER = 40;
 const TOWERS = {
   grunt: {
     name: "Grunt", cost: 125, role: "Offense", placement: "ground",
-    unlockCost: 0, sprite: "assets/towers/grunt.png", hitboxRadius: 20,
+    unlockCost: 0, sprite: "assets/towers/grunt.png", portrait: "assets/towers/grunt_portrait.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 1.0, range: 12, targetType: "single", detectHidden: false, detectLead: false, detectFlying: false },
     upgrades: [
       { name: "Faster Reloading", cost: 50, apply: s => { s.firerate = 0.7; } },
@@ -24,7 +24,7 @@ const TOWERS = {
   },
   sniper: {
     name: "Sniper", cost: 450, role: "Defense", placement: "cliff",
-    unlockCost: 0, sprite: "assets/towers/sniper.png", hitboxRadius: 20,
+    unlockCost: 0, sprite: "assets/towers/sniper.png", portrait: "assets/towers/sniper_portrait.png", hitboxRadius: 20,
     base: { damage: 10, firerate: 5.0, range: 28, targetType: "single", detectHidden: false, detectLead: false, detectFlying: false, stunImmune: true },
     upgrades: [
       { name: "Faster Reloading", cost: 200, apply: s => { s.damage += 2; s.firerate = 4; } },
@@ -35,7 +35,7 @@ const TOWERS = {
   },
   paintballer: {
     name: "Paintballer", cost: 100, role: "Offense", placement: "ground",
-    unlockCost: 100, sprite: "assets/towers/paintballer.png", hitboxRadius: 20,
+    unlockCost: 100, sprite: "assets/towers/paintballer.png", portrait: "assets/towers/paintballer_portrait.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 1.7, range: 7.5, targetType: "splash", splashRadius: 3, maxHits: 8, detectHidden: false, detectLead: false, detectFlying: false },
     upgrades: [
       { name: "Paintball Gear", cost: 25, apply: s => { s.range += 1.5; s.splashRadius += 1; s.detectHidden = true; } },
@@ -47,7 +47,7 @@ const TOWERS = {
   },
   demolitions: {
     name: "Demolitions", cost: 700, role: "Offense", placement: "ground",
-    unlockCost: 200, sprite: "assets/towers/demolitions.png", hitboxRadius: 24,
+    unlockCost: 200, sprite: "assets/towers/demolitions.png", portrait: "assets/towers/demolitions_portrait.png", hitboxRadius: 24,
     base: { damage: 8, firerate: 2.6, range: 10, targetType: "splash", splashRadius: 4.5, aimTime: 1.0, detectHidden: false, detectLead: true },
     upgrades: [
       { name: "Faster Throwing", cost: 300, apply: s => { s.range += 2; s.firerate = 2.0; } },
@@ -58,7 +58,7 @@ const TOWERS = {
   },
   soldier: {
     name: "Soldier", cost: 400, role: "Offense", placement: "ground",
-    unlockCost: 350, sprite: "assets/towers/soldier.png", hitboxRadius: 20,
+    unlockCost: 350, sprite: "assets/towers/soldier.png", portrait: "assets/towers/soldier_portrait.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 0.175, range: 17, targetType: "burst", burstCount: 3, burstCooldown: 0.5, detectHidden: false, detectLead: false, detectFlying: false },
     upgrades: [
       { name: "Barracks Training", cost: 100, apply: s => { s.burstCooldown = 0.4; s.firerate = 0.15; } },
@@ -69,7 +69,7 @@ const TOWERS = {
   },
   farm: {
     name: "Farm", cost: 300, role: "Support", placement: "ground",
-    unlockCost: 2000, sprite: "assets/towers/farm.png", hitboxRadius: 16,
+    unlockCost: 2000, sprite: "assets/towers/farm.png", portrait: "assets/towers/farm_portrait.png", hitboxRadius: 16,
     base: { damage: 0, firerate: 0, range: 5, targetType: "none", income: 60, placementLimit: 10, stunImmune: true, freezeImmune: true },
     upgrades: [
       { name: "Carrot Farm", cost: 200, apply: s => { s.income = 90; } },
@@ -81,7 +81,7 @@ const TOWERS = {
   },
   pyromancer: {
     name: "Pyromancer", cost: 900, role: "Offense", placement: "ground",
-    unlockCost: 1250, sprite: "assets/towers/pyromancer.png", hitboxRadius: 20,
+    unlockCost: 1250, sprite: "assets/towers/pyromancer.png", portrait: "assets/towers/pyromancer_portrait.png", hitboxRadius: 20,
     base: { damage: 1, firerate: 0.275, range: 9, targetType: "pierce", maxHits: 3, burnDamage: 2, burnDuration: 3, defenseMelt: 0.01, detectHidden: false, detectLead: true },
     upgrades: [
       { name: "Improved Handling", cost: 325, apply: s => { s.firerate = 0.2; s.range += 2; s.detectHidden = true; s.maxHits += 1; } },
@@ -93,7 +93,7 @@ const TOWERS = {
   },
   commander: {
     name: "Commander", cost: 650, role: "Support", placement: "ground",
-    unlockCost: 4000, sprite: "assets/towers/commander.png", hitboxRadius: 20,
+    unlockCost: 4000, sprite: "assets/towers/commander.png", portrait: "assets/towers/commander_portrait.png", hitboxRadius: 20,
     base: { damage: 0, firerate: 0, range: 10, targetType: "none", firerateBuff: 0.10, placementLimit: 6, detectHidden: true, detectLead: true, detectFlying: true },
     upgrades: [
       { name: "Leadership", cost: 400, apply: s => { s.firerateBuff = 0.15; } },
@@ -104,7 +104,7 @@ const TOWERS = {
   },
   minigunner: {
     name: "Minigunner", cost: 1850, role: "Offense", placement: "ground",
-    unlockCost: 8000, sprite: "assets/towers/minigunner.png", hitboxRadius: 28,
+    unlockCost: 8000, sprite: "assets/towers/minigunner.png", portrait: "assets/towers/minigunner_portrait.png", hitboxRadius: 28,
     base: { damage: 2, firerate: 0.15, range: 16, targetType: "single", revUpTime: 1.4, detectHidden: false },
     upgrades: [
       { name: "Improved Handling", cost: 350, apply: s => { s.firerate = 0.12; s.revUpTime = 1.2; s.detectHidden = true; } },
@@ -115,7 +115,7 @@ const TOWERS = {
   },
   accel: {
     name: "Accelerator", cost: 7500, role: "Offense", placement: "ground",
-    unlockCost: 2500, sprite: "assets/towers/accel.png", hitboxRadius: 20,
+    unlockCost: 2500, sprite: "assets/towers/accel.png", portrait: "assets/towers/accel_portrait.png", hitboxRadius: 20,
     base: { damage: 12, firerate: 0.25, range: 19, targetType: "beam", chargeUpTime: 6.5, beamCooldown: 2.5, overcharge: 9000, placementLimit: 5, detectHidden: false, detectLead: true, stunImmune: true },
     upgrades: [
       { name: "Extra Juice", cost: 2000, apply: s => { s.damage += 3; s.detectHidden = true; s.overcharge += 3000; } },

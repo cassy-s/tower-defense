@@ -22,19 +22,26 @@
   <!-- Mode Select -->
   <div id="mode-select" class="overlay">
     <div class="menu-content">
-      <h2>SELECT MODE</h2>
+      <h2 class="section-title">SELECT MODE</h2>
+      <p class="section-subtitle">Choose your difficulty</p>
       <div class="mode-grid">
         <button class="btn btn-mode" data-mode="casual">
+          <span class="mode-icon">&#127795;</span>
           <span class="mode-name">CASUAL</span>
           <span class="mode-info">25 Waves</span>
+          <span class="mode-difficulty">EASY</span>
         </button>
         <button class="btn btn-mode" data-mode="molten">
+          <span class="mode-icon">&#128293;</span>
           <span class="mode-name">MOLTEN</span>
           <span class="mode-info">35 Waves</span>
+          <span class="mode-difficulty">HARD</span>
         </button>
         <button class="btn btn-mode" data-mode="fallen">
+          <span class="mode-icon">&#9760;</span>
           <span class="mode-name">FALLEN</span>
           <span class="mode-info">40 Waves</span>
+          <span class="mode-difficulty">EXTREME</span>
         </button>
       </div>
       <button class="btn btn-back" id="btn-back-mode">BACK</button>
@@ -44,7 +51,7 @@
   <!-- Loadout Screen -->
   <div id="loadout-screen" class="overlay">
     <div class="menu-content loadout-content">
-      <h2>SELECT YOUR TOWERS</h2>
+      <h2 class="section-title">SELECT YOUR TOWERS</h2>
       <p class="loadout-info">Choose up to 5 towers for your loadout</p>
       <div id="tower-grid" class="tower-grid"></div>
       <div id="loadout-slots" class="loadout-slots">
@@ -57,7 +64,7 @@
       <div id="tower-preview" class="tower-preview"></div>
       <div class="loadout-buttons">
         <button class="btn btn-back" id="btn-back-loadout">BACK</button>
-        <button class="btn btn-primary" id="btn-start-game" disabled>START</button>
+        <button class="btn btn-primary" id="btn-start-game" disabled>START GAME</button>
       </div>
     </div>
   </div>
@@ -65,17 +72,32 @@
   <!-- Game HUD -->
   <div id="game-hud" class="hud hidden">
     <div class="hud-top">
-      <div class="hud-stat"><span class="label">Wave</span><span id="hud-wave">0/25</span></div>
-      <div class="hud-stat"><span class="label">Cash</span><span id="hud-cash">$600</span></div>
-      <div class="hud-stat"><span class="label">Base HP</span><span id="hud-hp">100</span></div>
+      <div class="hud-stat">
+        <span class="icon">&#9876;</span>
+        <span class="label">Wave</span>
+        <span id="hud-wave">0/25</span>
+      </div>
+      <div class="hud-stat">
+        <span class="icon">&#128176;</span>
+        <span class="label">Cash</span>
+        <span id="hud-cash">$600</span>
+      </div>
+      <div class="hud-stat">
+        <span class="icon">&#10084;</span>
+        <span class="label">HP</span>
+        <span id="hud-hp">100</span>
+        <div class="hp-bar-container">
+          <div class="hp-bar-fill" id="hp-bar" style="width:100%"></div>
+        </div>
+      </div>
     </div>
     <div class="hud-right" id="tower-shop"></div>
     <div class="hud-bottom">
-      <button class="btn btn-small" id="btn-start-wave">Start Wave</button>
+      <button class="btn btn-small" id="btn-start-wave">START WAVE</button>
       <div class="speed-controls">
-        <button class="btn btn-small speed-btn active" data-speed="1">1x</button>
-        <button class="btn btn-small speed-btn" data-speed="2">2x</button>
-        <button class="btn btn-small speed-btn" data-speed="3">3x</button>
+        <button class="btn speed-btn active" data-speed="1">1x</button>
+        <button class="btn speed-btn" data-speed="2">2x</button>
+        <button class="btn speed-btn" data-speed="3">3x</button>
       </div>
       <button class="btn btn-small" id="btn-pause">Pause</button>
     </div>
@@ -85,11 +107,13 @@
   <div id="upgrade-panel" class="upgrade-panel hidden">
     <div class="upgrade-header">
       <span id="upgrade-tower-name">Tower</span>
-      <button class="btn btn-tiny" id="btn-close-upgrade">X</button>
+      <button class="btn btn-tiny" id="btn-close-upgrade">&#10005;</button>
     </div>
     <div id="upgrade-stats" class="upgrade-stats"></div>
     <div id="upgrade-list" class="upgrade-list"></div>
-    <button class="btn btn-small btn-sell" id="btn-sell-tower">Sell</button>
+    <div class="upgrade-actions">
+      <button class="btn btn-small btn-sell" id="btn-sell-tower">SELL</button>
+    </div>
   </div>
 
   <!-- Game Over -->
@@ -97,7 +121,7 @@
     <div class="menu-content">
       <h2 id="game-over-title">GAME OVER</h2>
       <p id="game-over-info">You survived 10 waves</p>
-      <button class="btn btn-primary" id="btn-retry">RETRY</button>
+      <button class="btn btn-primary" id="btn-retry">PLAY AGAIN</button>
       <button class="btn btn-back" id="btn-menu">MAIN MENU</button>
     </div>
   </div>
