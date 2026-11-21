@@ -1,0 +1,88 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Arial, sans-serif; background: #111; color: #eee; }
+#game-container { position: relative; width: 100%; height: 100%; }
+#game-canvas { display: block; width: 100%; height: 100%; background: #1a3a1a; }
+
+/* Overlays */
+.overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); z-index: 100; }
+.overlay.active { display: flex; }
+.menu-content { text-align: center; max-width: 700px; width: 90%; }
+.game-title { font-size: 3.5rem; letter-spacing: 0.15em; margin-bottom: 0.3em; color: #ffcc00; text-shadow: 0 0 20px rgba(255,204,0,0.5); }
+.subtitle { font-size: 1.1rem; color: #aaa; margin-bottom: 2em; }
+
+/* Buttons */
+.btn { border: none; cursor: pointer; font-family: inherit; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; transition: background 0.15s, transform 0.1s; }
+.btn:hover { transform: scale(1.05); }
+.btn:active { transform: scale(0.97); }
+.btn-primary { background: #ffcc00; color: #111; font-size: 1.3rem; padding: 14px 48px; border-radius: 6px; }
+.btn-primary:hover { background: #ffe044; }
+.btn-primary:disabled { background: #555; color: #888; cursor: default; transform: none; }
+.btn-back { background: #444; color: #ccc; font-size: 0.9rem; padding: 10px 28px; border-radius: 6px; margin-top: 1.2em; }
+.btn-back:hover { background: #555; }
+.btn-small { background: #336; color: #cdf; font-size: 0.8rem; padding: 8px 16px; border-radius: 4px; }
+.btn-small:hover { background: #448; }
+.btn-tiny { background: #533; color: #fcc; font-size: 0.75rem; padding: 4px 10px; border-radius: 3px; }
+.btn-sell { background: #833; color: #fdd; }
+.btn-sell:hover { background: #a44; }
+
+/* Mode Select */
+.mode-grid { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin-bottom: 1em; }
+.btn-mode { background: #223; color: #ccc; padding: 24px 32px; border-radius: 10px; min-width: 160px; display: flex; flex-direction: column; gap: 6px; border: 2px solid #334; }
+.btn-mode:hover { background: #334; border-color: #ffcc00; }
+.mode-name { font-size: 1.2rem; color: #fff; }
+.mode-info { font-size: 0.8rem; color: #999; }
+.btn-mode[data-mode="molten"] { border-color: #633; }
+.btn-mode[data-mode="molten"]:hover { border-color: #f60; }
+.btn-mode[data-mode="fallen"] { border-color: #336; }
+.btn-mode[data-mode="fallen"]:hover { border-color: #a6f; }
+
+/* Loadout */
+.loadout-content { max-width: 850px; }
+.loadout-info { color: #aaa; margin-bottom: 1em; }
+.tower-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; margin-bottom: 1.5em; }
+.tower-card { background: #223; border: 2px solid #334; border-radius: 8px; padding: 8px; cursor: pointer; text-align: center; transition: border-color 0.15s; }
+.tower-card:hover { border-color: #ffcc00; }
+.tower-card.selected { border-color: #ffcc00; background: #332; }
+.tower-card.locked { opacity: 0.4; cursor: default; }
+.tower-card img { width: 48px; height: 48px; }
+.tower-card .tower-card-name { font-size: 0.65rem; margin-top: 4px; color: #ccc; }
+.tower-card .tower-card-cost { font-size: 0.6rem; color: #9a4; }
+.loadout-slots { display: flex; gap: 8px; justify-content: center; margin-bottom: 1em; }
+.slot { width: 64px; height: 64px; background: #1a1a2a; border: 2px dashed #444; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.slot img { width: 48px; height: 48px; }
+.slot:not(.empty) { border-style: solid; border-color: #ffcc00; }
+.tower-preview { min-height: 60px; color: #aaa; font-size: 0.8rem; margin-bottom: 1em; }
+.loadout-buttons { display: flex; gap: 12px; justify-content: center; }
+
+/* HUD */
+.hud { position: absolute; inset: 0; pointer-events: none; z-index: 50; }
+.hud.hidden { display: none; }
+.hud > * { pointer-events: auto; }
+.hud-top { position: absolute; top: 0; left: 0; right: 0; display: flex; gap: 16px; justify-content: center; padding: 8px; background: rgba(0,0,0,0.7); }
+.hud-stat { display: flex; gap: 6px; align-items: center; font-size: 0.9rem; }
+.hud-stat .label { color: #888; font-size: 0.75rem; text-transform: uppercase; }
+.hud-right { position: absolute; top: 44px; right: 0; width: 160px; background: rgba(0,0,0,0.75); padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: calc(100% - 90px); overflow-y: auto; border-radius: 0 0 0 8px; }
+.shop-tower { display: flex; align-items: center; gap: 6px; padding: 6px; background: #1a1a2a; border: 1px solid #334; border-radius: 6px; cursor: pointer; transition: border-color 0.15s; }
+.shop-tower:hover { border-color: #ffcc00; }
+.shop-tower.cant-afford { opacity: 0.5; }
+.shop-tower img { width: 36px; height: 36px; }
+.shop-tower-info { text-align: left; }
+.shop-tower-name { font-size: 0.7rem; color: #ddd; }
+.shop-tower-cost { font-size: 0.65rem; color: #9a4; }
+.hud-bottom { position: absolute; bottom: 0; left: 0; right: 0; display: flex; gap: 10px; justify-content: center; align-items: center; padding: 8px; background: rgba(0,0,0,0.7); }
+.speed-controls { display: flex; gap: 4px; }
+.speed-btn.active { background: #ffcc00; color: #111; }
+
+/* Upgrade Panel */
+.upgrade-panel { position: absolute; bottom: 50px; left: 50%; transform: translateX(-50%); background: rgba(10,10,20,0.92); border: 1px solid #445; border-radius: 10px; padding: 12px; min-width: 280px; max-width: 360px; z-index: 60; }
+.upgrade-panel.hidden { display: none; }
+.upgrade-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.upgrade-header span { font-size: 1rem; font-weight: 700; color: #ffcc00; }
+.upgrade-stats { font-size: 0.75rem; color: #aaa; margin-bottom: 8px; line-height: 1.5; }
+.upgrade-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.upgrade-btn { background: #223; border: 1px solid #445; border-radius: 6px; padding: 8px; cursor: pointer; text-align: left; color: #ccc; font-size: 0.75rem; transition: border-color 0.15s; }
+.upgrade-btn:hover { border-color: #ffcc00; }
+.upgrade-btn.purchased { background: #132; border-color: #4a4; opacity: 0.7; cursor: default; }
+.upgrade-btn.cant-afford { opacity: 0.5; }
+.upgrade-btn .upg-name { font-weight: 700; color: #eee; }
+.upgrade-btn .upg-cost { color: #9a4; float: right; }
