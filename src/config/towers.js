@@ -157,11 +157,11 @@ export const TOWERS = {
     },
     upgrades: [
       { name: 'Pressure Valve', cost: 350, desc: '+2 range, wider cone.', add: { range: 2, coneAngle: 10 } },
-      { name: 'Napalm Mix', cost: 1000, desc: 'Burn deals double and lasts longer.', set: { burnDamage: 4, burnDuration: 5 } },
+      { name: 'Napalm Mix', cost: 1000, desc: 'Burn deals double and lasts longer.', set: { burnDamage: 4, burnDuration: 5 }, look: { vest: '#4a3a2a', pouches: true } },
       { name: 'Armor Melter', cost: 2400, desc: 'Fire melts armor. Sees Shades.',
         set: { armorPierce: 0.8, detectHidden: true }, add: { maxHits: 4 }, look: { tank: '#2d6fb3' } },
       { name: 'Inferno', cost: 6500, desc: 'Blue-hot flames. +3 damage, +6 burn.',
-        add: { damage: 3, burnDamage: 6, range: 1 }, set: { flameColor: 'blue' } },
+        add: { damage: 3, burnDamage: 6, range: 1 }, set: { flameColor: 'blue' }, look: { tank: '#5ad0ff', vest: '#22303e', bandolier: true, gloves: '#5ad0ff' } },
     ],
   },
 
@@ -182,12 +182,12 @@ export const TOWERS = {
       slow: 0.4, slowDuration: 0.6,
     },
     upgrades: [
-      { name: 'Capacitors', cost: 600, desc: 'Charges faster.', set: { cooldown: 1.0 } },
+      { name: 'Capacitors', cost: 600, desc: 'Charges faster.', set: { cooldown: 1.0 }, look: { vest: '#3a4a5a' } },
       { name: 'Forked Arcs', cost: 1500, desc: 'Chains to 7 zombies.', set: { chains: 7 }, add: { damage: 3 } },
       { name: 'Ion Sight', cost: 3000, desc: 'Sees Shades and Carrion. +6 damage.',
-        set: { detectHidden: true, detectFlying: true }, add: { damage: 6 } },
+        set: { detectHidden: true, detectFlying: true }, add: { damage: 6 }, look: { hat: 'helmet', hatColor: '#d9d6cc' } },
       { name: 'Storm Caller', cost: 9000, desc: 'Massive arcs that chain 12 times.',
-        set: { chains: 12, cooldown: 0.7, chainFalloff: 0.95 }, add: { damage: 12, range: 2 }, look: { tank: '#9a4fe0' } },
+        set: { chains: 12, cooldown: 0.7, chainFalloff: 0.95 }, add: { damage: 12, range: 2 }, look: { tank: '#9a4fe0', cape: '#4a2a7a', gloves: '#9a4fe0' } },
     ],
   },
 
@@ -238,9 +238,9 @@ export const TOWERS = {
       { name: 'Recon Radio', cost: 1200, desc: 'Nearby towers can see Shades. +3 range.',
         add: { range: 3 }, set: { aura: { cooldownMult: 0.8, grantHidden: true } }, look: { radio: true } },
       { name: 'High Command', cost: 3200, desc: 'Nearby towers: 25% faster, +10% range.',
-        set: { aura: { cooldownMult: 0.75, rangeMult: 1.1, grantHidden: true } } },
+        set: { aura: { cooldownMult: 0.75, rangeMult: 1.1, grantHidden: true } }, look: { vest: '#2f3a24', sunglasses: true } },
       { name: 'Rally Cry', cost: 8000, desc: 'Unlocks RALLY: nearby towers fire 2x speed for 10s.',
-        set: { ability: 'rally', damage: 6 }, look: { cape: '#8b1d1d' } },
+        set: { ability: 'rally', damage: 6 }, look: { cape: '#8b1d1d', hat: 'beret', hatColor: '#8b1d1d', medals: true } },
     ],
   },
 

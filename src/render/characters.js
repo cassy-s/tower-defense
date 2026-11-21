@@ -18,16 +18,34 @@ function newRig() {
   hips.position.y = 2;
   body.add(hips);
   root.add(body);
-  const mk = (x, y, z, parent = hips) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return g; };
+  root.name = 'root'; body.name = 'body'; hips.name = 'hips';
+  const mk = (name, x, y, z, parent = hips) => { const g = new THREE.Group(); g.name = name; g.position.set(x, y, z); parent.add(g); return g; };
   return {
     root, body, hips,
-    torso: mk(0, 0, 0),
-    head: mk(0, 2, 0),
-    armL: mk(-1.5, 1.8, 0), armR: mk(1.5, 1.8, 0),
-    legL: mk(-0.5, 0, 0), legR: mk(0.5, 0, 0),
-    mount: mk(0.3, 1.45, 1.0),
+    torso: mk('torso', 0, 0, 0),
+    head: mk('head', 0, 2, 0),
+    armL: mk('armL', -1.5, 1.8, 0), armR: mk('armR', 1.5, 1.8, 0),
+    legL: mk('legL', -0.5, 0, 0), legR: mk('legR', 0.5, 0, 0),
+    mount: mk('mount', 0.3, 1.45, 1.0),
     spinners: [], wings: [], muzzle: null, pose: 'twoHand', extra: {},
   };
+}
+
+const RIG_PARTS = ['body', 'hips', 'torso', 'head', 'armL', 'armR', 'legL', 'legR', 'mount'];
+
+/** Cheap copy of a rig that shares all geometry with the original. */
+export function cloneRig(t) {
+  const root = t.root.clone(true);
+  const rig = { ...t, root, extra: {}, spinners: [] };
+  for (const n of RIG_PARTS) rig[n] = root.getObjectByName(n);
+  rig.wings = t.wings.map((_, i) => root.getObjectByName(`wing${i}`));
+  return rig;
+}
+
+/** Mark every geometry under obj as shared so disposeTree() leaves it alone. */
+export function markShared(obj) {
+  obj.traverse((o) => { if (o.geometry) o.geometry.userData.shared = true; });
+  return obj;
 }
 
 function attach(group, builder, opts) { const m = builder.build(opts); group.add(m); return m; }
@@ -41,7 +59,7 @@ function crack(b, x, y, z, nx, nz, rng, color, len = 0.9) {
     const seg = len / 3;
     const ang = (rng() - 0.5) * 1.4;
     const px = x + Math.cos(ry) * cx, pz = z - Math.sin(ry) * cx;
-    b.box(0.06, seg * 1.15, 0.03, color, px, cy - seg / 2, pz, { ry, rz: ang });
+    b.box(0.11, seg * 1.15, 0.05, color, px, cy - seg / 2, pz, { ry, rz: ang });
     cx += Math.sin(ang) * seg * 0.6;
     cy -= seg;
   }
@@ -244,7 +262,7 @@ export function buildTower(look, { ghost = false } = {}) {
   const mat = ghost ? MAT.ghost : MAT.lit;
 
   legs(rig, L);
-  arms(rig, L);
+  arms(rig, L, { w: 0.86 });
   const tb = new PartBuilder(); torsoBase(tb, L); torsoExtras(tb, L); attach(rig.torso, tb, { material: mat });
   const hb = new PartBuilder(); headBase(hb, L); hair(hb, L); hat(hb, L); headExtras(hb, L); attach(rig.head, hb, { material: mat });
   if (L.hat !== 'welder' && L.face !== 'none') {
@@ -282,7 +300,7 @@ export function buildZombie(def, variant = [0, 0, 0], mods = []) {
   const rig = newRig();
   rig.kind = L.body;
   const rng = mulberry32(variant[0] * 31 + variant[1] * 7 + variant[2] + 1);
-  const crackColor = shade(L.skin, -0.28);
+  const crackColor = shade(L.skin, -0.42);
   const cracks = !!L.cracks;
   const mat = def.hidden ? MAT.shade : MAT.lit;
   const fortified = mods.includes('fortified');
@@ -380,7 +398,7 @@ function buildWalker(rig, L, { rng, cracks, crackColor, mat, lean }) {
   attach(rig.torso, tb, { material: mat });
 
   const hb = new PartBuilder();
-  headBase(hb, L, { cylinder: true });
+  headBase(hb, L);
   if (cracks) { crack(hb, 0.3, 0.7, 0.62, 0, 1, rng, crackColor, 0.6); crack(hb, 0.62, 0.5, 0, 1, 0, rng, crackColor, 0.6); }
   if (L.riot) {
     hb.rbox(1.42, 0.8, 1.42, '#23272e', 0, 1.0, 0, { r: 0.3 });
@@ -425,7 +443,7 @@ function buildCrawler(rig, L, { rng, cracks, crackColor, mat }) {
   const tb = new PartBuilder(); torsoBase(tb, L);
   tb.box(1.6, 0.3, 0.8, '#5a1c1c', 0, 0.1, 0); // torn waist
   attach(rig.torso, tb, { material: mat });
-  const hb = new PartBuilder(); headBase(hb, L, { cylinder: true });
+  const hb = new PartBuilder(); headBase(hb, L);
   if (cracks) crack(hb, 0.3, 0.7, 0.62, 0, 1, rng, crackColor, 0.6);
   attach(rig.head, hb, { material: mat });
   rig.hips.position.y = 0.55;
@@ -449,7 +467,7 @@ function buildBloater(rig, L, { rng, mat }) {
   }
   attach(rig.torso, tb, { material: mat });
   rig.head.position.y = 2.6;
-  const hb = new PartBuilder(); headBase(hb, L, { cylinder: true, w: 1.05 }); attach(rig.head, hb, { material: mat });
+  const hb = new PartBuilder(); headBase(hb, L, { w: 1.05 }); attach(rig.head, hb, { material: mat });
   rig.lean = 0;
 }
 
@@ -543,6 +561,12 @@ function buildKnight(rig, L, { rng, mat }) {
   tb.box(2.14, 0.28, 1.18, '#7a6a4a', 0, 0.16, 0);
   tb.box(1.0, 0.7, 0.1, '#8a7a55', 0, -0.25, 0.56);
   if (L.fur) { tb.rbox(2.8, 0.7, 1.6, L.fur, 0, 2.0, -0.1, { r: 0.3 }); tb.box(2.4, 2.4, 0.12, shade(L.fur, -0.12), 0, 0.8, -0.62); }
+  if (L.cloak) {
+    // Royal cape: tattered strips from the shoulders to the ground, crystal clasps.
+    for (let i = 0; i < 7; i++) tb.box(0.4, 4.0 + rng() * 0.5, 0.14, i % 2 ? L.cloak : shade(L.cloak, 0.06), -1.2 + i * 0.4, -0.05 - rng() * 0.3, -0.7, { rx: 0.12 });
+    for (const x of [-1, 1]) tb.box(0.35, 0.35, 0.2, cr, x * 0.85, 2.0, 0.55, { rz: Math.PI / 4, glow: true });
+    tb.rbox(2.6, 0.5, 1.5, shade(L.shirt, 0.08), 0, 2.15, -0.05, { r: 0.2 });
+  }
   // shoulder crystals
   for (const x of [-1, 1]) for (let i = 0; i < 3; i++) tb.cone(0.13, 0.7 - i * 0.12, cr, x * (1.55 + i * 0.1), 2.35 + i * 0.05, -0.2 + i * 0.25, { rz: -x * (0.4 + i * 0.2), glow: true, seg: 4 });
   attach(rig.torso, tb, { material: mat });
@@ -550,10 +574,19 @@ function buildKnight(rig, L, { rng, mat }) {
   hb.rbox(1.35, 1.35, 1.35, L.skin, 0, 0.65, 0, { r: 0.25 });
   hb.box(1.38, 0.12, 1.38, trim, 0, 0.3, 0);
   hb.box(0.2, 0.5, 0.08, cr, 0, 1.05, 0.68, { glow: true });
-  const n = L.crown ? 7 : 4;
-  for (let i = 0; i < n; i++) {
-    const a = -1 + (i / (n - 1)) * 2;
-    hb.cone(0.13, 0.55 + (L.crown ? (1 - Math.abs(a)) * 0.6 : 0), cr, a * 0.55, 1.45, L.crown ? 0.2 : 0.4, { rz: -a * 0.5, seg: 4, glow: true });
+  if (L.crown) {
+    // A full ring of tall crystal spikes, taller at the front.
+    hb.box(1.5, 0.25, 1.5, trim, 0, 1.32, 0);
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      const h = 0.8 + (Math.cos(a) * 0.5 + 0.5) * 0.9;
+      hb.cone(0.16, h, cr, Math.sin(a) * 0.62, 1.4 + h / 2, Math.cos(a) * 0.62, { rx: Math.cos(a) * 0.3, rz: -Math.sin(a) * 0.3, seg: 4, glow: true });
+    }
+  } else {
+    for (let i = 0; i < 4; i++) {
+      const a = -1 + (i / 3) * 2;
+      hb.cone(0.13, 0.55, cr, a * 0.55, 1.45, 0.4, { rz: -a * 0.5, seg: 4, glow: true });
+    }
   }
   attach(rig.head, hb, { material: mat });
   rig.faceZ = 0.68; rig.faceY = 0.62;
@@ -621,6 +654,7 @@ function buildFlyer(rig, L, { rng }) {
   rig.faceY = 0.18; rig.faceZ = 0.52; rig.faceSize = 0.75;
   for (const side of [-1, 1]) {
     const wing = new THREE.Group();
+    wing.name = `wing${rig.wings.length}`;
     wing.position.set(side * 0.6, 0.25, 0);
     const b = new PartBuilder();
     b.box(1.8, 0.12, 1.3, '#26262a', side * 0.9, 0, 0, { r: 0.04 });

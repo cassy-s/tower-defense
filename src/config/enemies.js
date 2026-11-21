@@ -33,17 +33,17 @@ export const ENEMIES = {
     name: 'Bloater', blurb: 'Bursts into Crawlers when killed.',
     hp: 32, speed: 2.2, bounty: 6, leak: 3, threat: 5,
     abilities: [{ type: 'deathSpawn', enemy: 'crawler', count: 4 }],
-    look: { body: 'bloater', skin: ['#8fb35a', '#9cbc62'], shirt: ['#c9c0a0'], pants: ['#4a4a3a'], pustules: true },
+    look: { body: 'bloater', cracks: true, skin: ['#6aae92', '#74b49a'], shirt: ['#46484e'], pants: ['#3a3c41'], pustules: true },
   },
   riot: {
     name: 'Riot Zombie', blurb: 'Armored. Riot shield soaks the first hits.',
     hp: 26, speed: 2.6, bounty: 7, leak: 3, threat: 6, armor: 0.5, shield: 20,
-    look: { body: 'walker', skin: ['#7a9a6e'], shirt: ['#23272e'], pants: ['#23272e'], riot: true },
+    look: { body: 'walker', cracks: true, skin: ['#6f88aa'], shirt: ['#23272e'], pants: ['#23272e'], riot: true },
   },
   hazmat: {
     name: 'Hazmat', blurb: 'Suit makes it immune to fire.',
     hp: 26, speed: 3.0, bounty: 5, leak: 2, threat: 4, immune: ['burn'],
-    look: { body: 'walker', skin: ['#7fa36b'], shirt: ['#e2c22c'], pants: ['#e2c22c'], hazmat: true },
+    look: { body: 'walker', skin: ['#5fa58a'], shirt: ['#e2c22c'], pants: ['#e2c22c'], hazmat: true },
   },
   shade: {
     name: 'Shade', blurb: 'Hidden. Only towers that can see hidden zombies can hit it.',
@@ -54,19 +54,19 @@ export const ENEMIES = {
     name: 'Spitter', blurb: 'Spits acid that stuns a nearby tower for 2 seconds.',
     hp: 22, speed: 2.7, bounty: 6, leak: 2, threat: 5,
     abilities: [{ type: 'spit', every: 6, range: 10, stun: 2 }],
-    look: { body: 'walker', skin: ['#9cb84a'], shirt: ['#556b2f'], pants: ['#3a3a2a'], jaw: true, glow: '#c6ff3a' },
+    look: { body: 'walker', cracks: true, skin: ['#5fa58a'], shirt: ['#3f4146'], pants: ['#2f3136'], jaw: true, glow: '#c6ff3a' },
   },
   screamer: {
     name: 'Screamer', blurb: 'Its shriek makes nearby zombies 35% faster.',
     hp: 20, speed: 3.2, bounty: 6, leak: 2, threat: 5,
     abilities: [{ type: 'haste', radius: 6, mult: 1.35 }],
-    look: { body: 'runner', skin: ['#b3b7a0'], shirt: ['#6a2b4a'], pants: ['#2b2b3a'], longHair: '#2a2a2a', screaming: true },
+    look: { body: 'runner', cracks: true, skin: ['#7891b2'], shirt: ['#6a2b4a'], pants: ['#2b2b3a'], longHair: '#2a2a2a', screaming: true },
   },
   surgeon: {
     name: 'Surgeon', blurb: 'Patches up nearby zombies every few seconds.',
     hp: 34, speed: 2.6, bounty: 8, leak: 3, threat: 7,
     abilities: [{ type: 'heal', every: 3, radius: 6, pct: 0.12 }],
-    look: { body: 'walker', skin: ['#a6b59a'], shirt: ['#e8e8e0'], pants: ['#6fa0a8'], surgeon: true },
+    look: { body: 'walker', cracks: true, skin: ['#68ad90'], shirt: ['#e8e8e0'], pants: ['#6fa0a8'], surgeon: true },
   },
   carrion: {
     name: 'Carrion', blurb: 'Flying. Only towers that can hit flyers can shoot it.',
@@ -82,7 +82,7 @@ export const ENEMIES = {
     name: 'Juggernaut', blurb: 'Chained up in steel plating. Very heavy armor.',
     hp: 420, speed: 1.6, bounty: 40, leak: 15, threat: 40, armor: 0.45, size: 1.8,
     abilities: [{ type: 'enrage', below: 0.4, mult: 1.5 }],
-    look: { body: 'heavy', skin: ['#8a8d92'], shirt: ['#6e7176'], pants: ['#77797e'], plated: true, chains: true },
+    look: { body: 'heavy', cracks: true, skin: ['#5fa58a'], shirt: ['#6e7176'], pants: ['#77797e'], plated: true, chains: true },
   },
   revenant: {
     name: 'Revenant', blurb: 'Undead knight in crystal-studded armor. Tough, armored, and steady.',
@@ -112,7 +112,7 @@ export const ENEMIES = {
       { type: 'enrage', below: 0.3, mult: 1.5 },
       { type: 'summon', every: 12, enemies: ['revenant'], count: 1 },
     ],
-    look: { body: 'knight', crown: true, shield: true, skin: ['#101216'], shirt: ['#24272e'], pants: ['#1e2127'], trim: '#4a5262', crystal: '#3ff0d8', weapon: 'sword', glow: '#bffcff' },
+    look: { body: 'knight', crown: true, shield: true, skin: ['#101216'], shirt: ['#24272e'], pants: ['#1e2127'], trim: '#4a5262', crystal: '#3ff0d8', weapon: 'sword', glow: '#bffcff', cloak: '#1a2a3a' },
   },
 };
 

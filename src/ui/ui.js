@@ -186,7 +186,7 @@ export class UI {
       const card = document.createElement('button');
       card.className = `shop-card role-${ROLE_COLOR[t.role] || 'orange'}`;
       card.dataset.type = id;
-      card.innerHTML = `<span class="hotkey">${(i + 1) % 10}</span><img alt="" src="${this.app.portraits.tower(id)}"><span class="shop-name">${t.name}</span><span class="price">$${fmt(t.cost)}</span>`;
+      card.innerHTML = `${i < 10 ? `<span class="hotkey">${(i + 1) % 10}</span>` : ''}<img alt="" src="${this.app.portraits.tower(id)}"><span class="shop-name">${t.name}</span><span class="price">$${fmt(t.cost)}</span>`;
       card.addEventListener('click', () => { this.app.sound('click'); this.app.beginPlacing(id); });
       card.addEventListener('mouseenter', () => this.showTowerTip(id, card));
       card.addEventListener('mouseleave', () => this.hideTip());
@@ -199,7 +199,7 @@ export class UI {
     const t = TOWERS[id];
     const s = computeStats(id, 0).stats;
     const tip = $('#tooltip');
-    tip.innerHTML = `<div class="tip-head"><b>${t.name}</b><span class="role role-${ROLE_COLOR[t.role]}">${t.role}</span></div>
+    tip.innerHTML = `<div class="tip-head"><b>${t.name}</b><span class="tip-price">$${fmt(t.cost)}</span><span class="role role-${ROLE_COLOR[t.role]}">${t.role}</span></div>
       <p>${t.description}</p>
       <div class="tip-stats">${statLine(s)}</div>
       ${t.limit ? `<div class="tip-limit">Limit: ${t.limit} per game</div>` : ''}`;
@@ -403,10 +403,10 @@ function enemyTraits(e) {
 }
 
 function statLine(s) {
-  if (s.attack === 'none') return `${icon('coin')} $${s.income} per wave`;
-  const parts = [`${icon('target')} ${s.damage}${s.pellets > 1 && s.attack === 'spread' ? '×' + s.pellets : ''}${s.burst > 1 ? '×' + s.burst : ''}`,
-    `${icon('clock')} ${(1 / s.cooldown).toFixed(2)}/s`, `${icon('range')} ${s.range}`];
-  return parts.map((p) => `<span>${p}</span>`).join('');
+  if (s.attack === 'none') return `<span class="ts">${icon('coin')}<em>Income</em><b>$${s.income}/wave</b></span>`;
+  const dmg = `${s.damage}${s.pellets > 1 && s.attack === 'spread' ? '×' + s.pellets : ''}${s.burst > 1 ? '×' + s.burst : ''}`;
+  return [[icon('target'), 'Damage', dmg], [icon('clock'), 'Rate', `${(1 / s.cooldown).toFixed(2)}/s`], [icon('range'), 'Range', s.range]]
+    .map(([i, l, v]) => `<span class="ts">${i}<em>${l}</em><b>${v}</b></span>`).join('');
 }
 
 function traitChips(s, buff = {}) {

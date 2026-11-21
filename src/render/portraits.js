@@ -77,7 +77,7 @@ export class Portraits {
     const w = 480, h = 300;
     this.renderer.setSize(w, h, false);
     const cam = new THREE.PerspectiveCamera(30, w / h, 1, 500);
-    cam.position.set(0, 88, 52); cam.lookAt(0, 0, 3);
+    cam.position.set(0, 98, 60); cam.lookAt(0, 0, 3);
     this.renderer.setClearColor(theme.sky, 1);
     this.renderer.render(scene, cam);
     const url = this.canvas.toDataURL('image/jpeg', 0.85);

@@ -55,7 +55,7 @@ const BOSS_WAVES = {
 };
 
 // When each zombie can start appearing in generated waves.
-const UNLOCK = {
+export const UNLOCK = {
   shambler: 1, runner: 3, crawler: 5, bloater: 7, hazmat: 9, shade: 11, brute: 12,
   riot: 13, spitter: 15, screamer: 17, surgeon: 19, carrion: 21, juggernaut: 26, revenant: 32,
 };

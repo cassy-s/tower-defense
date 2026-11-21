@@ -102,8 +102,10 @@ export function runBot(mapId, diff, { log = false } = {}) {
   return { state: game.state, wave: game.wave, lives: game.lives, max: game.maxWaves, towers: game.towers.length, time: game.time };
 }
 
+import { pathToFileURL } from 'node:url';
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 const [, , mapArg, diffArg] = process.argv;
-if (mapArg) {
+if (!isMain) { /* imported as a module */ } else if (mapArg) {
   const r = runBot(mapArg, diffArg || 'easy', { log: true });
   console.log(r);
 } else {

@@ -27,18 +27,34 @@ export const ABILITIES = {
   },
 };
 
+/**
+ * Extra attack types. To add a brand-new behaviour without touching
+ * Tower.update(), register it here (or from another module):
+ *   ATTACK_HANDLERS.heal = { fire(tower, target, game) { ... }, needsTarget: true };
+ * and use `attack: 'heal'` in towers.js.
+ */
+export const ATTACK_HANDLERS = {};
+
 export function computeStats(type, level) {
   const def = TOWERS[type];
-  const s = { ...STAT_DEFAULTS, ...structuredClone(def.stats) };
-  const look = { ...def.look };
+  const s = { ...STAT_DEFAULTS, ...structuredClone(def.stats || {}) };
+  const look = { ...(def.look || {}) };
+  const ups = def.upgrades || [];
   for (let i = 0; i < level; i++) {
-    const u = def.upgrades[i];
+    const u = ups[i];
     if (!u) break;
     if (u.set) for (const k in u.set) s[k] = structuredClone(u.set[k]);
-    if (u.add) for (const k in u.add) s[k] = (s[k] || 0) + u.add[k];
-    if (u.mul) for (const k in u.mul) s[k] = (s[k] ?? 1) * u.mul[k];
+    if (u.add) for (const k in u.add) s[k] = (Number(s[k]) || 0) + Number(u.add[k]);
+    if (u.mul) for (const k in u.mul) s[k] = (s[k] ?? 1) * Number(u.mul[k]);
     if (u.look) Object.assign(look, u.look);
   }
+  // Safety clamps so a bad number can't freeze or break the game.
+  s.cooldown = Math.max(0.03, Number(s.cooldown) || 1);
+  s.projectileSpeed = Math.max(1, Number(s.projectileSpeed) || 30);
+  s.damage = Number(s.damage) || 0;
+  s.range = Math.max(1, Number(s.range) || 1);
+  if (s.ability && !ABILITIES[s.ability]) s.ability = null;
+  if (!TARGETING.includes(s.priority)) s.priority = 'first';
   return { stats: s, look };
 }
 
@@ -77,8 +93,8 @@ export class Tower {
     if (stats.ability && !this.abilityTimer) this.abilityTimer = ABILITIES[stats.ability].cooldown * 0.5;
   }
 
-  get maxLevel() { return this.def.upgrades.length; }
-  get nextUpgrade() { return this.def.upgrades[this.level] || null; }
+  get maxLevel() { return (this.def.upgrades || []).length; }
+  get nextUpgrade() { return (this.def.upgrades || [])[this.level] || null; }
   get range() { return this.stats.range * this.buff.rangeMult; }
   get sellValue() { return Math.floor(this.spent * 0.7); }
   get effectiveCooldown() {
@@ -134,6 +150,7 @@ export class Tower {
 
   update(dt) {
     const s = this.stats;
+    if (this.def.hooks?.onUpdate) this.def.hooks.onUpdate(this, this.game, dt);
     if (this.abilityTimer > 0) this.abilityTimer -= dt;
     if (this.abilityActive > 0) this.abilityActive -= dt;
     if (this.stunTimer > 0) { this.stunTimer -= dt; this.firing = false; this.spin = Math.max(0, this.spin - dt); return; }
@@ -181,19 +198,36 @@ export class Tower {
       case 'splash': this.fireSplash(target); break;
       case 'flame': this.fireFlame(target); break;
       case 'chain': this.fireChain(target); break;
-      default: return;
+      default: {
+        const h = ATTACK_HANDLERS[s.attack];
+        if (!h) return;
+        h.fire(this, target, this.game);
+      }
     }
     this.cooldownTimer = cd;
   }
 
   hitOpts() { return { source: this, armorPierce: this.stats.armorPierce, bossMult: this.stats.bossMult }; }
 
+  /** Damage + every on-hit effect (burn, slow, custom hook). All attacks go through here. */
+  applyHit(e, dmg = this.stats.damage) {
+    if (!e.alive) return;
+    e.damage(dmg, this.hitOpts());
+    this.applyStatus(e);
+  }
+
+  applyStatus(e) {
+    const s = this.stats;
+    if (!e.alive) return;
+    if (s.burnDamage) e.applyBurn(s.burnDamage * (e.boss ? s.bossMult : 1), s.burnDuration, this);
+    if (s.slow) e.applySlow(s.slow, s.slowDuration);
+    if (this.def.hooks?.onHit) this.def.hooks.onHit(this, e, this.game);
+  }
+
   fireHitscan(target) {
     const s = this.stats;
     this.game.emit('shot', { tower: this, x: target.x, z: target.z, enemy: target });
-    target.damage(s.damage, this.hitOpts());
-    if (s.burnDamage) target.applyBurn(s.burnDamage, s.burnDuration, this);
-    if (s.slow) target.applySlow(s.slow, s.slowDuration);
+    this.applyHit(target);
   }
 
   fireSpread(target) {
@@ -212,9 +246,7 @@ export class Tower {
     for (let p = 0; p < s.pellets; p++) {
       const e = hits[p % hits.length];
       struck.push({ x: e.x, z: e.z });
-      if (!e.alive) continue;
-      e.damage(s.damage, this.hitOpts());
-      if (s.burnDamage) e.applyBurn(s.burnDamage, s.burnDuration, this);
+      this.applyHit(e);
     }
     this.game.emit('spread', { tower: this, hits: struck, angle: aim });
   }
@@ -257,8 +289,7 @@ export class Tower {
       if (Math.abs(d) > half && e !== target) continue;
       n++;
       if (e.immune.has('burn')) { this.game.emit('immune', { enemy: e }); continue; }
-      e.damage(s.damage, this.hitOpts());
-      e.applyBurn(s.burnDamage, s.burnDuration, this);
+      this.applyHit(e);
     }
     this.game.emit('flame', { tower: this, angle: aim, range: this.range, cone: s.coneAngle, color: s.flameColor });
   }
@@ -271,14 +302,12 @@ export class Tower {
     for (let i = 0; i <= s.chains && cur; i++) {
       hit.add(cur);
       points.push({ x: cur.x, z: cur.z, y: cur.flying ? 3 : 1.2 });
-      cur.damage(dmg, this.hitOpts());
-      if (s.slow) cur.applySlow(s.slow, s.slowDuration);
+      this.applyHit(cur, dmg);
       dmg *= s.chainFalloff;
       const from = cur;
       let next = null, bestD = s.chainRange * s.chainRange;
       for (const e of this.game.enemies) {
-        if (!e.alive || hit.has(e)) continue;
-        if (e.flying && !s.detectFlying) continue;
+        if (hit.has(e) || !this.canSee(e)) continue;
         const d = (e.x - from.x) ** 2 + (e.z - from.z) ** 2;
         if (d < bestD) { bestD = d; next = e; }
       }

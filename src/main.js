@@ -140,7 +140,8 @@ class App {
     this.persist();
     this.cancelPlacing();
     this.select(null);
-    setTimeout(() => this.ui.showEnd(won, g), 900);
+    clearTimeout(this.endTimer);
+    this.endTimer = setTimeout(() => { if (this.game === g && this.mode === 'game') this.ui.showEnd(won, g); }, 900);
   }
 
   restart() {
@@ -317,6 +318,11 @@ class App {
 
   // ------------------------------------------------------------- loop -----
   frame(now) {
+    requestAnimationFrame((t) => this.frame(t));
+    try { this.step(now); } catch (err) { console.error('[Blockade] frame error:', err); }
+  }
+
+  step(now) {
     const realDt = Math.min(0.1, (now - this.last) / 1000);
     this.last = now;
     if (this.game && !this.paused && this.mode !== 'loading') {
@@ -333,7 +339,6 @@ class App {
       if (this.mode === 'game') this.ui.update();
     }
     if (this.mode !== 'loading') this.view.render(this.paused ? 0 : realDt);
-    requestAnimationFrame((t) => this.frame(t));
   }
 }
 

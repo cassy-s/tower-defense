@@ -1,9 +1,12 @@
-﻿// The 3D view: owns the renderer, scene, camera and all entity visuals.
+// The 3D view: owns the renderer, scene, camera and all entity visuals.
 // It never changes game state â€” it only listens to game events and mirrors
 // what the simulation is doing.
 import * as THREE from 'three';
 import { buildWorld, toWorld } from './world.js';
-import { buildTower, buildZombie, zombieVariant, buildPlate, animateZombie } from './characters.js';
+import { buildTower, buildZombie, zombieVariant, buildPlate, animateZombie, cloneRig, markShared } from './characters.js';
+
+const zombieTemplates = new Map();
+const projTemplates = new Map();
 import { FX } from './fx.js';
 import { PartBuilder, disposeTree, MAT, shade } from './geo.js';
 import { WIDTH, HEIGHT, THEMES } from '../config/maps.js';
@@ -16,6 +19,7 @@ const FLY_Y = 3.6;
 
 // Shared health bar pieces
 const barGeo = new THREE.PlaneGeometry(1, 1);
+barGeo.userData.shared = true;
 const barMat = {
   bg: new THREE.MeshBasicMaterial({ color: '#111', depthTest: false, transparent: true, opacity: 0.75 }),
   hp: new THREE.MeshBasicMaterial({ color: '#5ee04a', depthTest: false }),
@@ -67,14 +71,21 @@ export class View {
     this.selected = null;
     this.hovered = null;
     this.baseShake = 0;
+    this.timers = [];
 
     // Range indicator
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.14, depthWrite: false }));
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.2, depthWrite: false }));
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.975, 1, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.75, depthWrite: false }));
     this.range = new THREE.Group(); this.range.add(disc, ring); this.range.position.y = 0.16; this.range.visible = false;
     this.range.userData = { disc, ring };
     this.scene.add(this.range);
     this.ghost = null;
+    // Footprint marker (placement) + selection ring
+    this.foot = new THREE.Mesh(new THREE.CircleGeometry(1, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#7dff6a', transparent: true, opacity: 0.45, depthWrite: false }));
+    this.foot.position.y = 0.2; this.foot.visible = false;
+    this.selRing = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffd34a', transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }));
+    this.selRing.position.y = 0.25; this.selRing.visible = false;
+    this.scene.add(this.foot, this.selRing);
 
     this.raycaster = new THREE.Raycaster();
     this.groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -134,12 +145,14 @@ export class View {
     for (const ev of this.enemyViews.values()) { this.scene.remove(ev.root); disposeTree(ev.root); }
     for (const d of this.dying) { this.scene.remove(d.root); disposeTree(d.root); }
     for (const p of this.projViews.values()) this.scene.remove(p);
-    for (const f of this.flyers) this.scene.remove(f.obj);
+    for (const f of this.flyers) { this.scene.remove(f.obj); disposeTree(f.obj); }
+    this.timers = [];
     this.towerViews.clear(); this.enemyViews.clear(); this.projViews.clear(); this.dying = []; this.flyers = [];
     if (this.world) { this.scene.remove(this.world.group); disposeTree(this.world.group); this.world = null; }
     this.hideGhost();
     this.range.visible = false;
     this.selected = null;
+    this.selRing.visible = false;
   }
 
   // ----------------------------------------------------------- towers -----
@@ -261,7 +274,7 @@ export class View {
     for (let i = 0; i < 6; i++) {
       this.fx.lit.spawn({ x: from.x, y: from.y, z: from.z, vx: (tx - from.x) / T + (Math.random() - 0.5), vy: (1.5 - from.y + 0.5 * g * T * T) / T, vz: (tz - from.z) / T + (Math.random() - 0.5), size: 0.3 - i * 0.03, life: T + 0.05, gravity: g, color: '#9adf2a' });
     }
-    setTimeout(() => { this.fx.goo({ x: tx, y: 1.5, z: tz }, '#9adf2a', 10, 4); this.fx.splat(tx, tz, '#6a9a1a', 1.4); }, T * 1000);
+    this.later(T, () => { this.fx.goo({ x: tx, y: 1.5, z: tz }, '#9adf2a', 10, 4); this.fx.splat(tx, tz, '#6a9a1a', 1.4); });
     this.onSound?.('spit');
   }
 
@@ -283,7 +296,7 @@ export class View {
     this.flyers.push({ obj: plane, vx: 55, life: 2.6 });
     targets.forEach((t, i) => {
       const [x, z] = toWorld(t.x, t.z);
-      setTimeout(() => this.fx.lit.spawn({ x, y: 13, z, vy: -14, size: 0.5, sy: 0.9, life: 0.85, spin: 0, color: '#2a2a2a' }), 50 + i * 120);
+      this.later(0.05 + i * 0.12, () => this.fx.lit.spawn({ x, y: 13, z, vy: -14, size: 0.5, sy: 0.9, life: 0.85, spin: 0, color: '#2a2a2a' }));
     });
     this.onSound?.('plane');
   }
@@ -291,7 +304,9 @@ export class View {
   // ---------------------------------------------------------- enemies -----
   addEnemy(e) {
     const variant = zombieVariant(e.def, Math.random);
-    const rig = buildZombie(e.def, variant, e.mods);
+    const key = `${e.type}|${variant.join(',')}|${e.mods.join(',')}`;
+    if (!zombieTemplates.has(key)) zombieTemplates.set(key, (() => { const t = buildZombie(e.def, variant, e.mods); markShared(t.root); return t; })());
+    const rig = cloneRig(zombieTemplates.get(key));
     const root = new THREE.Group();
     root.add(rig.root);
     const bar = new THREE.Group();
@@ -377,17 +392,21 @@ export class View {
 
   // ------------------------------------------------------ projectiles -----
   addProjectile(p) {
-    const b = new PartBuilder();
-    if (p.kind === 'bolt') {
-      const s = p.size || 1;
-      b.cone(0.22 * s, 1.1 * s, '#c9ced6', 0, 0, 0.3 * s, { rx: Math.PI / 2, seg: 6 });
-      b.cyl(0.2 * s, 0.2 * s, 0.3 * s, '#e07b25', 0, 0, -0.35 * s, { rx: Math.PI / 2, seg: 8 });
-      b.box(0.08, 0.08, 0.5, '#ffe9a8', 0, 0, -0.75 * s, { glow: true });
-    } else {
-      b.rbox(0.45, 0.45, 0.55, '#3d4a2a', 0, 0, 0, { r: 0.15 });
-      b.box(0.2, 0.15, 0.2, '#d8b02a', 0, 0.28, 0);
+    const tkey = `${p.kind}|${p.size || 1}`;
+    if (!projTemplates.has(tkey)) {
+      const b = new PartBuilder();
+      if (p.kind === 'bolt') {
+        const s = p.size || 1;
+        b.cone(0.22 * s, 1.1 * s, '#c9ced6', 0, 0, 0.3 * s, { rx: Math.PI / 2, seg: 6 });
+        b.cyl(0.2 * s, 0.2 * s, 0.3 * s, '#e07b25', 0, 0, -0.35 * s, { rx: Math.PI / 2, seg: 8 });
+        b.box(0.08, 0.08, 0.5, '#ffe9a8', 0, 0, -0.75 * s, { glow: true });
+      } else {
+        b.rbox(0.45, 0.45, 0.55, '#3d4a2a', 0, 0, 0, { r: 0.15 });
+        b.box(0.2, 0.15, 0.2, '#d8b02a', 0, 0.28, 0);
+      }
+      projTemplates.set(tkey, markShared(b.build({ shadows: true })));
     }
-    const m = b.build({ shadows: true });
+    const m = projTemplates.get(tkey).clone(true);
     m.userData.p = p;
     this.scene.add(m);
     this.projViews.set(p.id, m);
@@ -422,10 +441,14 @@ export class View {
     this.ghost.rig.root.position.set(wx, 0.2, wz);
     this.ghost.rig.root.rotation.y = Math.atan2(WIDTH / 2 - x, HEIGHT / 2 - z);
     this.ghost.rig.root.visible = true;
-    this.showRange(wx, wz, computeStats(type, 0).stats.range, ok ? '#ffffff' : '#ff3a2a');
+    this.showRange(wx, wz, computeStats(type, 0).stats.range, ok ? '#9dff8a' : '#ff3a2a');
+    const fp = TOWERS[type].footprint || 1.5;
+    this.foot.visible = true; this.foot.position.set(wx, 0.2, wz); this.foot.scale.set(fp, 1, fp);
+    this.foot.material.color.set(ok ? '#7dff6a' : '#ff3a2a');
   }
 
   hideGhost() {
+    if (this.foot) this.foot.visible = false;
     if (this.ghost) { this.scene.remove(this.ghost.rig.root); disposeTree(this.ghost.rig.root); this.ghost = null; }
     if (this.selected) this.showRangeFor(this.selected); else this.range.visible = false;
   }
@@ -445,6 +468,8 @@ export class View {
 
   select(t) {
     this.selected = t;
+    this.selRing.visible = !!t;
+    if (t) { const [x, z] = toWorld(t.x, t.z); this.selRing.position.set(x, 0.25, z); this.selRing.scale.setScalar(t.footprint * 1.05); }
     if (t) this.showRangeFor(t); else if (!this.ghost) this.range.visible = false;
   }
 
@@ -543,8 +568,14 @@ export class View {
   }
 
   // ------------------------------------------------------------- frame ----
+  later(delay, fn) { this.timers.push({ at: this.time + delay, fn }); }
+
   update(dt) {
     this.time += dt;
+    if (this.timers.length) {
+      const due = this.timers.filter((t) => t.at <= this.time);
+      if (due.length) { this.timers = this.timers.filter((t) => t.at > this.time); for (const t of due) t.fn(); }
+    }
     const game = this.game;
     if (!game) return;
 
@@ -570,6 +601,7 @@ export class View {
       if (buffed && Math.random() < dt * 6) this.fx.glow.spawn({ x: tv.root.position.x + (Math.random() - 0.5) * 1.5, y: 0.5, z: tv.root.position.z + (Math.random() - 0.5) * 1.5, vy: 3, size: 0.15, life: 0.5, color: '#ffd34a' });
     }
 
+    if (this.selRing.visible) { const k = 1 + Math.sin(this.time * 6) * 0.06; const f = this.selected ? this.selected.footprint * 1.05 : 1; this.selRing.scale.set(f * k, 1, f * k); }
     for (const ev of this.enemyViews.values()) this.syncEnemy(ev, dt);
 
     for (let i = this.dying.length - 1; i >= 0; i--) {

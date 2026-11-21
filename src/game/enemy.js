@@ -38,7 +38,8 @@ export class Enemy {
     this.radius = 0.55 * this.size;
     this.immune = new Set(def.immune || []);
 
-    this.lane = this.boss ? 0 : (game.rng() * 2 - 1) * 0.9;
+    this.lane = this.boss ? 0 : (game.rng() * 2 - 1) * 1.3;
+    this.laneSeed = game.rng() * 10;
     this.alive = true;
     this.leaked = false;
     this.burn = null;           // { dps, t, source }
@@ -61,8 +62,10 @@ export class Enemy {
   updatePosition() {
     const p = this.path.at(this.dist, this._p || (this._p = {}));
     // Lateral lane offset, perpendicular to the path direction.
-    this.x = p.x - p.dz * this.lane;
-    this.z = p.z + p.dx * this.lane;
+    // Lateral lane offset (with a gentle wander so crowds spread out).
+    const lane = this.boss ? 0 : Math.max(-1.5, Math.min(1.5, this.lane + Math.sin(this.dist * 0.35 + this.laneSeed) * 0.3));
+    this.x = p.x - p.dz * lane;
+    this.z = p.z + p.dx * lane;
     this.dx = p.dx; this.dz = p.dz;
   }
 

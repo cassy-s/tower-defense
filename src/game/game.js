@@ -5,7 +5,7 @@ import { TOWERS } from '../config/towers.js';
 import { DIFFICULTIES, getWave, waveBonus, waveHpScale } from '../config/waves.js';
 import { Path } from './path.js';
 import { Enemy } from './enemy.js';
-import { Tower } from './tower.js';
+import { Tower, computeStats } from './tower.js';
 import { buildLayout } from './layout.js';
 import { mulberry32 } from './rng.js';
 
@@ -89,6 +89,7 @@ export class Game {
   upgradeTower(t) {
     const u = t.nextUpgrade;
     if (!u || !this.canAfford(u.cost) || this.state !== 'playing') return false;
+    try { computeStats(t.type, t.level + 1); } catch (err) { console.error(`Upgrade ${t.type} -> ${t.level + 1} is broken:`, err); return false; }
     this.cash -= u.cost;
     this.stats.spent += u.cost;
     t.spent += u.cost;
@@ -203,7 +204,11 @@ export class Game {
       if (d <= r2 + e.radius) hits.push([d, e]);
     }
     hits.sort((a, b) => a[0] - b[0]);
-    for (let i = 0; i < Math.min(maxHits, hits.length); i++) hits[i][1].damage(damage, { source, armorPierce, bossMult });
+    for (let i = 0; i < Math.min(maxHits, hits.length); i++) {
+      const e = hits[i][1];
+      e.damage(damage, { source, armorPierce, bossMult });
+      if (source?.applyStatus) source.applyStatus(e);
+    }
     this.emit('explode', { x, z, radius });
   }
 
@@ -217,13 +222,11 @@ export class Game {
         const t = p.tower;
         const hr = 0.7 * p.size;
         for (const e of this.enemies) {
-          if (!e.alive || p.hit.has(e)) continue;
-          if (e.flying && !t.stats.detectFlying) continue;
-          if (e.hidden && !(t.stats.detectHidden || t.buff.grantHidden)) continue;
+          if (p.hit.has(e) || !t.canSee(e)) continue;
           const rr = hr + e.radius;
           if ((e.x - p.x) ** 2 + (e.z - p.z) ** 2 > rr * rr) continue;
           p.hit.add(e);
-          e.damage(p.damage, t.hitOpts());
+          t.applyHit(e, p.damage);
           this.emit('boltHit', { p, enemy: e });
           if (--p.pierce <= 0) { done = true; break; }
         }
@@ -257,15 +260,18 @@ export class Game {
     for (const t of this.towers) { const b = t.buff; b.cooldownMult = 1; b.rangeMult = 1; b.grantHidden = false; b.rally = false; }
     for (const src of this.towers) {
       const aura = src.stats.aura;
-      if (!aura || src.stunTimer > 0) continue;
+      const rally = src.abilityActive > 0 && src.stats.ability === 'rally';
+      if ((!aura && !rally) || src.stunTimer > 0) continue;
       const r = src.stats.range;
       for (const t of this.towers) {
         if (t === src) continue;
         if ((t.x - src.x) ** 2 + (t.z - src.z) ** 2 > r * r) continue;
-        if (aura.cooldownMult) t.buff.cooldownMult = Math.min(t.buff.cooldownMult, aura.cooldownMult);
-        if (aura.rangeMult) t.buff.rangeMult = Math.max(t.buff.rangeMult, aura.rangeMult);
-        if (aura.grantHidden) t.buff.grantHidden = true;
-        if (src.abilityActive > 0) t.buff.rally = true;
+        if (aura) {
+          if (aura.cooldownMult !== undefined) t.buff.cooldownMult = Math.min(t.buff.cooldownMult, Math.max(0.2, aura.cooldownMult));
+          if (aura.rangeMult !== undefined) t.buff.rangeMult = Math.max(t.buff.rangeMult, aura.rangeMult);
+          if (aura.grantHidden) t.buff.grantHidden = true;
+        }
+        if (rally) t.buff.rally = true;
       }
     }
   }

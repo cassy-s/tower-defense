@@ -3,7 +3,8 @@
 // (warnings in the console) and via `npm run check`.
 import { TOWERS, STAT_DEFAULTS } from './towers.js';
 import { ENEMIES, MODIFIERS } from './enemies.js';
-import { getWave, DIFFICULTIES } from './waves.js';
+import { getWave, DIFFICULTIES, UNLOCK, isBossWave } from './waves.js';
+import { ABILITIES, ATTACK_HANDLERS, TARGETING } from '../game/tower.js';
 
 export const ATTACKS = {
   hitscan: 'Instant shot at one target. Use burst/burstDelay for bursts.',
@@ -42,7 +43,14 @@ export function validateContent() {
     if (typeof t.cost !== 'number' || t.cost <= 0) err(w, 'cost must be a positive number');
     if (!ROLES.includes(t.role)) err(w, `role should be one of ${ROLES.join(', ')}`);
     if (!t.stats) { err(w, 'missing stats'); continue; }
-    if (!ATTACKS[t.stats.attack || 'hitscan']) err(w, `unknown attack "${t.stats.attack}" (known: ${Object.keys(ATTACKS).join(', ')})`);
+    const knownAttack = (a) => !!(ATTACKS[a] || ATTACK_HANDLERS[a]);
+    if (!Array.isArray(t.upgrades)) err(w, 'upgrades must be an array (use [] for none)');
+    if (t.stats.cooldown !== undefined && !(t.stats.cooldown > 0)) err(w, 'stats.cooldown must be > 0 (seconds between shots)');
+    if (t.stats.projectileSpeed !== undefined && !(t.stats.projectileSpeed > 0)) err(w, 'stats.projectileSpeed must be > 0');
+    if (t.stats.ability && !ABILITIES[t.stats.ability]) err(w, `unknown ability "${t.stats.ability}" (known: ${Object.keys(ABILITIES).join(', ')})`);
+    if (t.stats.priority && !TARGETING.includes(t.stats.priority)) err(w, `priority must be one of ${TARGETING.join(', ')}`);
+    for (const k of ['damage', 'cooldown', 'range']) if (t.stats[k] !== undefined && typeof t.stats[k] !== 'number') err(w, `stats.${k} must be a number`);
+    if (!knownAttack(t.stats.attack || 'hitscan')) err(w, `unknown attack "${t.stats.attack}" (known: ${Object.keys(ATTACKS).join(', ')})`);
     for (const k of Object.keys(t.stats)) if (!statKeys.has(k)) err(`${w}.stats`, `unknown stat "${k}"`);
     checkLook(t.look || {}, `${w}.look`, err);
     (t.upgrades || []).forEach((u, i) => {
@@ -51,7 +59,10 @@ export function validateContent() {
       if (!u.name) err(uw, 'missing name');
       if (typeof u.cost !== 'number' || u.cost <= 0) err(uw, 'cost must be a positive number');
       for (const part of ['set', 'add', 'mul']) for (const k of Object.keys(u[part] || {})) if (!statKeys.has(k)) err(`${uw}.${part}`, `unknown stat "${k}"`);
-      if (u.set?.attack && !ATTACKS[u.set.attack]) err(uw, `unknown attack "${u.set.attack}"`);
+      for (const part of ['add', 'mul']) for (const [k, v] of Object.entries(u[part] || {})) if (typeof v !== 'number') err(`${uw}.${part}.${k}`, 'must be a number');
+      if (u.set?.ability && !ABILITIES[u.set.ability]) err(uw, `unknown ability "${u.set.ability}"`);
+      if (u.set?.cooldown !== undefined && !(u.set.cooldown > 0)) err(uw, 'cooldown must be > 0');
+      if (u.set?.attack && !knownAttack(u.set.attack)) err(uw, `unknown attack "${u.set.attack}"`);
       if (u.look) checkLook(u.look, `${uw}.look`, err);
     });
   }
@@ -59,6 +70,8 @@ export function validateContent() {
   for (const [id, e] of Object.entries(ENEMIES)) {
     const w = `enemies.${id}`;
     for (const k of ['hp', 'speed', 'bounty', 'threat']) if (typeof e[k] !== 'number') err(w, `missing number "${k}"`);
+    if (!e.look) { err(w, 'missing look'); continue; }
+    if (!e.boss && !UNLOCK[id] && !isSpawnedSomewhere(id)) err(w, 'never appears: add it to UNLOCK in waves.js or to a hand-written wave');
     if (!ENEMY_BODIES.includes(e.look?.body)) err(w, `look.body should be one of ${ENEMY_BODIES.join(', ')}`);
     for (const a of e.abilities || []) {
       if (!ENEMY_ABILITIES.includes(a.type)) err(w, `unknown ability "${a.type}"`);
@@ -74,6 +87,11 @@ export function validateContent() {
     }
   }
   return errors;
+}
+
+function isSpawnedSomewhere(id) {
+  for (let w = 1; w <= 60; w++) if (getWave(w).some((g) => g.type === id)) return true;
+  return Object.values(ENEMIES).some((e) => (e.abilities || []).some((a) => a.enemy === id || (a.enemies || []).includes(id)));
 }
 
 function checkLook(look, where, err) {
