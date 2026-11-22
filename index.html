@@ -2,157 +2,149 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tower Defense</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Blockade — Zombie Tower Defense</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lilita+One&family=Nunito:wght@700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.js" } }</script>
 </head>
 <body>
-<div id="game-container">
-  <canvas id="game-canvas"></canvas>
+<canvas id="scene"></canvas>
+<div id="fx-layer"></div>
+<div id="vignette"></div>
 
-  <!-- Main Menu -->
-  <div id="main-menu" class="overlay active">
-    <div class="menu-content">
-      <h1 class="game-title">TOWER DEFENSE</h1>
-      <div class="title-decoration">
-        <span class="title-line"></span>
-        <span class="title-diamond"></span>
-        <span class="title-line"></span>
-      </div>
-      <p class="subtitle">Defend your base against waves of enemies</p>
-      <button class="btn btn-primary" id="btn-play">PLAY</button>
+<div id="app">
+  <!-- Loading -->
+  <section id="screen-loading" class="screen active">
+    <div class="loading-box">
+      <div class="logo small"><span class="logo-main">BLOCKADE</span></div>
+      <div class="load-track"><div class="load-fill" id="load-fill"></div></div>
+      <div class="load-text" id="load-text">Building the barricades…</div>
     </div>
-  </div>
+  </section>
 
-  <!-- Mode Select -->
-  <div id="mode-select" class="overlay">
-    <div class="menu-content">
-      <h2 class="section-title">SELECT MODE</h2>
-      <p class="section-subtitle">Choose your difficulty</p>
-      <div class="mode-grid">
-        <button class="btn btn-mode" data-mode="casual">
-          <div class="mode-banner">
-            <span class="mode-icon">&#127795;</span>
-            <span class="mode-name">CASUAL</span>
-            <span class="mode-info">25 Waves</span>
-          </div>
-          <div class="mode-footer">
-            <span class="mode-difficulty">EASY</span>
-          </div>
-        </button>
-        <button class="btn btn-mode" data-mode="molten">
-          <div class="mode-banner">
-            <span class="mode-icon">&#128293;</span>
-            <span class="mode-name">MOLTEN</span>
-            <span class="mode-info">35 Waves</span>
-          </div>
-          <div class="mode-footer">
-            <span class="mode-difficulty">HARD</span>
-          </div>
-        </button>
-        <button class="btn btn-mode" data-mode="fallen">
-          <div class="mode-banner">
-            <span class="mode-icon">&#9760;</span>
-            <span class="mode-name">FALLEN</span>
-            <span class="mode-info">40 Waves</span>
-          </div>
-          <div class="mode-footer">
-            <span class="mode-difficulty">EXTREME</span>
-          </div>
-        </button>
+  <!-- Title -->
+  <section id="screen-title" class="screen">
+    <div class="title-wrap">
+      <div class="logo">
+        <span class="logo-main">BLOCKADE</span>
+        <span class="logo-ribbon">ZOMBIE TOWER DEFENSE</span>
       </div>
-      <button class="btn btn-back" id="btn-back-mode">BACK</button>
-    </div>
-  </div>
-
-  <!-- Loadout Screen -->
-  <div id="loadout-screen" class="overlay">
-    <div class="menu-content loadout-content">
-      <h2 class="section-title">SELECT YOUR TOWERS</h2>
-      <p class="loadout-info">Choose up to 5 towers for your loadout</p>
-      <div id="tower-grid" class="tower-grid"></div>
-      <div id="loadout-slots" class="loadout-slots">
-        <div class="slot empty" data-slot="0"></div>
-        <div class="slot empty" data-slot="1"></div>
-        <div class="slot empty" data-slot="2"></div>
-        <div class="slot empty" data-slot="3"></div>
-        <div class="slot empty" data-slot="4"></div>
-      </div>
-      <div id="tower-preview" class="tower-preview"></div>
-      <div class="loadout-buttons">
-        <button class="btn btn-back" id="btn-back-loadout">BACK</button>
-        <button class="btn btn-primary" id="btn-start-game" disabled>START GAME</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Game HUD -->
-  <div id="game-hud" class="hud hidden">
-    <div class="hud-top">
-      <div class="hud-stat">
-        <span class="icon">&#9876;</span>
-        <span class="label">Wave</span>
-        <span id="hud-wave">0/25</span>
-      </div>
-      <div class="hud-stat">
-        <span class="icon">&#128176;</span>
-        <span class="label">Cash</span>
-        <span id="hud-cash">$600</span>
-      </div>
-      <div class="hud-stat">
-        <span class="icon">&#10084;</span>
-        <span class="label">HP</span>
-        <span id="hud-hp">100</span>
-        <div class="hp-bar-container">
-          <div class="hp-bar-fill" id="hp-bar" style="width:100%"></div>
+      <div class="title-buttons">
+        <button class="btn btn-green btn-huge" id="btn-play">PLAY</button>
+        <div class="title-row">
+          <button class="btn btn-blue" id="btn-codex">FIELD GUIDE</button>
+          <button class="btn btn-slate" id="btn-settings-title">SETTINGS</button>
         </div>
       </div>
     </div>
-    <div class="hud-right" id="tower-shop"></div>
-    <div class="hud-bottom">
-      <button class="btn btn-small" id="btn-start-wave">START WAVE</button>
-      <div class="speed-controls">
-        <button class="btn speed-btn active" data-speed="1">1x</button>
-        <button class="btn speed-btn" data-speed="2">2x</button>
-        <button class="btn speed-btn" data-speed="3">3x</button>
+    <div class="title-foot">Hold the line. Don't let them reach the bunker.</div>
+  </section>
+
+  <!-- Map select -->
+  <section id="screen-maps" class="screen">
+    <header class="screen-head">
+      <button class="btn btn-slate btn-back" data-back="title">‹ BACK</button>
+      <h2>CHOOSE YOUR BATTLEFIELD</h2>
+      <span></span>
+    </header>
+    <div id="map-list" class="map-list"></div>
+    <div class="diff-panel panel">
+      <div class="diff-title">DIFFICULTY</div>
+      <div id="diff-list" class="diff-list"></div>
+      <div id="diff-desc" class="diff-desc"></div>
+      <button class="btn btn-green btn-big" id="btn-start">DEPLOY ▶</button>
+    </div>
+  </section>
+
+  <!-- Field guide -->
+  <section id="screen-codex" class="screen">
+    <header class="screen-head">
+      <button class="btn btn-slate btn-back" data-back="title">‹ BACK</button>
+      <h2>FIELD GUIDE</h2>
+      <div class="tabs"><button class="tab active" data-tab="zombies">ZOMBIES</button><button class="tab" data-tab="towers">TOWERS</button></div>
+    </header>
+    <div id="codex-grid" class="codex-grid"></div>
+  </section>
+
+  <!-- In-game HUD -->
+  <section id="hud" class="hud hidden">
+    <div class="hud-top">
+      <div class="stat-pill lives" title="Lives"><span class="ico" data-icon="heart"></span><b id="hud-lives">100</b></div>
+      <div class="stat-pill cash" title="Cash"><span class="ico" data-icon="coin"></span><b id="hud-cash">$0</b></div>
+      <div class="wave-badge"><small>WAVE</small><b id="hud-wave">0</b><small id="hud-wave-max">/ 30</small></div>
+      <div class="hud-buttons">
+        <button class="icon-btn" id="btn-mute" title="Sound (M)"><span class="ico" data-icon="sound"></span></button>
+        <button class="icon-btn" id="btn-pause" title="Pause (P / Esc)"><span class="ico" data-icon="pause"></span></button>
       </div>
-      <button class="btn btn-small" id="btn-pause">Pause</button>
+    </div>
+
+    <div id="boss-bar" class="boss-bar hidden">
+      <div class="boss-name" id="boss-name">BOSS</div>
+      <div class="boss-track"><div class="boss-fill" id="boss-fill"></div><div class="boss-shield" id="boss-shield"></div></div>
+    </div>
+
+    <aside id="shop" class="shop panel">
+      <div class="shop-head"><span>DEPLOY</span><small>keys 1–0</small></div>
+      <div id="shop-grid" class="shop-grid"></div>
+      <div id="next-wave" class="next-wave"></div>
+      <div class="controls">
+        <button class="go-btn" id="btn-go"><span class="go-icon" data-icon="play"></span><span class="go-label" id="go-label">START</span></button>
+        <div class="control-col">
+          <button class="btn btn-slate btn-small speed-btn" id="btn-speed" title="Game speed (F)">1x</button>
+          <label class="auto-toggle" title="Start the next wave automatically"><input type="checkbox" id="chk-auto"><span>AUTO</span></label>
+        </div>
+      </div>
+    </aside>
+
+    <aside id="inspector" class="inspector panel hidden"></aside>
+
+    <div id="toast-stack" class="toast-stack"></div>
+    <div id="hint" class="hint hidden"></div>
+    <div id="tooltip" class="tooltip hidden"></div>
+  </section>
+
+  <!-- Pause / settings -->
+  <div id="modal-pause" class="modal hidden">
+    <div class="modal-card panel">
+      <h2 id="pause-title">PAUSED</h2>
+      <div class="settings">
+        <label>Sound volume <input type="range" id="set-volume" min="0" max="1" step="0.05"></label>
+        <label>Graphics
+          <select id="set-quality"><option value="high">High (shadows)</option><option value="low">Low (faster)</option></select>
+        </label>
+      </div>
+      <div class="modal-buttons" id="pause-buttons">
+        <button class="btn btn-green" id="btn-resume">RESUME</button>
+        <button class="btn btn-slate" id="btn-restart">RESTART</button>
+        <button class="btn btn-red" id="btn-quit">QUIT</button>
+      </div>
+      <div class="modal-buttons hidden" id="settings-buttons">
+        <button class="btn btn-green" id="btn-settings-done">DONE</button>
+      </div>
+      <div class="keys">
+        <b>Controls</b> — Click a tower card then the map to build · Click a tower to upgrade ·
+        <kbd>1</kbd>–<kbd>0</kbd> pick tower · <kbd>Space</kbd> start wave · <kbd>F</kbd> speed · <kbd>U</kbd> upgrade ·
+        <kbd>T</kbd> targeting · <kbd>Del</kbd> sell · <kbd>Esc</kbd> cancel / pause · Scroll to zoom, right-drag to pan
+      </div>
     </div>
   </div>
 
-  <!-- Tower Upgrade Panel -->
-  <div id="upgrade-panel" class="upgrade-panel hidden">
-    <div class="upgrade-header">
-      <span id="upgrade-tower-name">Tower</span>
-      <button class="btn btn-tiny" id="btn-close-upgrade">&#10005;</button>
-    </div>
-    <div id="upgrade-stats" class="upgrade-stats"></div>
-    <div id="upgrade-list" class="upgrade-list"></div>
-    <div class="upgrade-actions">
-      <button class="btn btn-small btn-sell" id="btn-sell-tower">SELL</button>
-    </div>
-  </div>
-
-  <!-- Game Over -->
-  <div id="game-over" class="overlay">
-    <div class="menu-content">
-      <h2 id="game-over-title">GAME OVER</h2>
-      <p id="game-over-info">You survived 10 waves</p>
-      <div id="game-over-stats" class="game-over-stats"></div>
-      <div class="game-over-buttons">
-        <button class="btn btn-primary" id="btn-retry">PLAY AGAIN</button>
-        <button class="btn btn-back" id="btn-menu">MAIN MENU</button>
+  <div id="modal-end" class="modal hidden">
+    <div class="modal-card panel end-card">
+      <div class="end-banner" id="end-banner">VICTORY</div>
+      <p id="end-sub"></p>
+      <div id="end-stats" class="end-stats"></div>
+      <div class="modal-buttons">
+        <button class="btn btn-green" id="btn-end-retry">PLAY AGAIN</button>
+        <button class="btn btn-slate" id="btn-end-menu">MAIN MENU</button>
       </div>
     </div>
   </div>
 </div>
 
-<script src="js/data.js"></script>
-<script src="js/map.js"></script>
-<script src="js/projectiles.js"></script>
-<script src="js/enemies.js"></script>
-<script src="js/towers.js"></script>
-<script src="js/ui.js"></script>
-<script src="js/engine.js"></script>
+<script type="module" src="src/main.js"></script>
 </body>
 </html>
