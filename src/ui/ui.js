@@ -245,7 +245,7 @@ export class UI {
     const el = $('#inspector');
     const s = t.stats;
     const next = t.nextUpgrade;
-    const key = `${t.id}|${t.level}|${t.targeting}|${Math.floor(this.game.cash >= (next?.cost ?? Infinity))}|${t.kills}|${Math.floor(t.damageDealt)}|${Math.ceil(t.abilityTimer)}|${t.buff.cooldownMult}|${t.buff.grantHidden}|${t.stunTimer > 0}`;
+    const key = `${t.id}|${t.level}|${t.targeting}|${Math.floor(this.game.cash >= (next?.cost ?? Infinity))}|${t.kills}|${Math.floor(t.damageDealt)}|${Math.ceil(t.abilityTimer)}|${t.buff.cooldownMult}|${t.buff.grantHidden}|${t.stunTimer > 0}|${s.scrapMax ? Math.floor((t.scrap / s.scrapMax) * 20) + '/' + t.sentryCount : ''}`;
     if (!full && key === this.inspKey) return;
     this.inspKey = key;
     const ability = s.ability ? ABILITIES[s.ability] : null;
@@ -435,13 +435,22 @@ function statGrid(t) {
     <div class="sg"><span>${icon('clock')} Fire rate</span><b>${(1 / t.effectiveCooldown).toFixed(2)}/s</b></div>
     <div class="sg"><span>${icon('range')} Range</span><b>${+t.range.toFixed(1)}</b></div>
     <div class="sg"><span>${icon('sword')} DPS</span><b>${t.dps.toFixed(1)}</b></div>
+    ${s.scrapMax ? builderInfo(t) : ''}
     <div class="chips">${traitChips(s, t.buff)}</div>`;
+}
+
+function builderInfo(t) {
+  const s = t.stats, u = s.unit || {};
+  const pct = Math.min(100, (t.scrap / s.scrapMax) * 100);
+  return `<div class="scrap"><i style="width:${pct}%"></i><span>SCRAP ${Math.floor(t.scrap)}/${s.scrapMax}</span></div>
+    <div class="chips"><i class="chip gold">Sentries ${t.sentryCount}/${s.maxUnits}</i><i class="chip">Sentry ${u.damage} dmg · ${(1 / u.cooldown).toFixed(1)}/s · ${u.lifespan}s</i>${u.shield ? '<i class="chip sky">Shielded</i>' : ''}${u.rocket ? `<i class="chip red">Rockets ${u.rocket.damage}×${u.rocket.count}</i>` : ''}</div>`;
 }
 
 const DIFF_LABEL = {
   damage: 'Damage', cooldown: 'Fire rate', range: 'Range', pierce: 'Pierce', pellets: 'Pellets', burst: 'Burst', splashRadius: 'Blast radius',
   maxHits: 'Max hits', chains: 'Chains', burnDamage: 'Burn', burnDuration: 'Burn time', armorPierce: 'Armor pierce', income: 'Income', spinUp: 'Spin-up',
   coneAngle: 'Cone', cluster: 'Cluster', bossMult: 'Boss damage', projectileSize: 'Bolt size',
+  maxUnits: 'Max sentries', buildRange: 'Build range',
 };
 function statDiff(a, b) {
   const out = [];

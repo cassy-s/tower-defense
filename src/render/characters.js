@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { PartBuilder, faceDecal, shade, MAT } from './geo.js';
 import { buildWeapon } from './weapons.js';
 import { mulberry32, pickOne } from '../game/rng.js';
+import { TOWER_MODELS, addModelPart, hasModelPart, modelPartBuilder } from './models.js';
 
 export const CHAR_SCALE = 0.66; // character units -> studs
 
@@ -229,7 +230,12 @@ function crates(rig, n) {
 function applyPose(rig) {
   const { armL, armR, mount } = rig;
   armL.rotation.order = armR.rotation.order = 'YXZ';
-  switch (rig.pose) {
+  let P = typeof rig.pose === 'object' ? rig.pose : null;
+  if (P?.idle) { rig.poseIdle = P.idle; rig.poseAim = P.aim; P = P.idle; }
+  if (P) {
+    armR.rotation.set(...P.armR); armL.rotation.set(...P.armL);
+    mount.position.set(...P.mount); mount.rotation.set(...(P.mountRot || [0, 0, 0]));
+  } else switch (rig.pose) {
     case 'heavy':
       armR.rotation.set(-1.0, -0.2, 0); armL.rotation.set(-1.1, 0.55, 0);
       mount.position.set(0.15, 0.85, 1.25);
@@ -251,11 +257,82 @@ function applyPose(rig) {
       mount.position.set(0.3, 1.45, 1.0);
   }
   rig.restArmL = armL.rotation.x; rig.restArmR = armR.rotation.x;
-  rig.restMountZ = mount.position.z;
+  rig.restMountZ = mount.position.z; rig.restMountY = mount.position.y;
+  rig.restHeadX = rig.head.rotation.x;
+}
+
+// ------------------------------------------------------- blender towers ----
+// Poses for the Blender-made characters (arm rotations are YXZ euler, mount
+// is where the weapon's grip sits in hips space).
+// `idle` is the relaxed pose from the reference art; `aim` is used while firing
+// (the view blends between them).
+export const MODEL_POSES = {
+  soldier: {
+    idle: { armR: [-1.15, -0.3, 0], armL: [-1.25, 0.6, 0], mount: [-0.1, 1.25, 1.0], mountRot: [0.35, 0.55, 0.25] },
+    aim:  { armR: [-1.38, -0.42, 0], armL: [-1.45, 0.72, 0], mount: [0.42, 1.32, 1.05], mountRot: [0, 0, 0] },
+  },
+  engineer: {
+    idle: { armR: [-1.6, -0.3, 0], armL: [-1.6, 0.55, 0], mount: [0.3, 1.7, 1.1], mountRot: [0.06, -0.15, 0] },
+    aim:  { armR: [-1.6, -0.3, 0], armL: [-1.6, 0.55, 0], mount: [0.3, 1.75, 1.1], mountRot: [0, 0, 0] },
+  },
+  minigunner: {
+    idle: { armR: [-0.6, 0, 0.3], armL: [-1.35, 0.7, 0], mount: [0.25, 0.6, 1.3], mountRot: [0.05, -0.15, 0] },
+    aim:  { armR: [-0.95, -0.25, 0], armL: [-1.35, 0.7, 0], mount: [0.25, 0.7, 1.3], mountRot: [0, 0, 0] },
+  },
+};
+
+function buildModelTower(L, id, ghost) {
+  const model = TOWER_MODELS[id];
+  const rig = newRig();
+  rig.model = id;
+  rig.body.scale.setScalar(CHAR_SCALE * (L.scale || 1));
+  const mat = ghost ? MAT.ghost : MAT.lit;
+  for (const part of ['legL', 'legR', 'armL', 'armR']) attach(rig[part], modelPartBuilder(id, part), { material: mat });
+  // Upgrade extras (bandolier, medals...) layer on top of the modelled torso.
+  const tb = modelPartBuilder(id, 'torso');
+  torsoExtras(tb, { bandolier: L.bandolier, medals: L.medals, radio: L.radio, cape: L.cape });
+  attach(rig.torso, tb, { material: mat });
+  const hb = modelPartBuilder(id, 'head');
+  const hatNow = L.hat || 'none';
+  if (hatNow === model.hat) addModelPart(hb, id, 'hat');
+  else if (hatNow !== 'none') hat(hb, L);
+  headExtras(hb, L);
+  attach(rig.head, hb, { material: mat });
+  if (L.hat !== 'welder' && L.face !== 'none') {
+    const f = faceDecal(L.face || model.face, { facePaint: !!L.facePaint }, 1.1);
+    f.position.set(0, 0.62, 0.615);
+    rig.head.add(f);
+  }
+  if (L.weapon === model.weapon) {
+    const g = new THREE.Group();
+    const wb = modelPartBuilder(id, 'weapon');
+    g.add(wb.build({ material: mat }));
+    if (hasModelPart(id, 'spin')) {
+      const holder = new THREE.Group();
+      holder.position.set(...model.spinPivot);
+      holder.add(modelPartBuilder(id, 'spin').build({ material: mat }));
+      g.add(holder);
+      rig.spinners = [holder];
+    }
+    const muzzle = new THREE.Object3D(); muzzle.position.set(...model.muzzle); g.add(muzzle);
+    rig.mount.add(g);
+    rig.muzzle = muzzle;
+    rig.weaponGroup = g;
+    rig.pose = MODEL_POSES[id];
+  } else {
+    const w = buildWeapon(L.weapon);
+    rig.mount.add(w.group);
+    rig.muzzle = w.muzzle; rig.spinners = w.spinners; rig.pose = w.pose; rig.weaponGroup = w.group;
+  }
+  applyPose(rig);
+  crates(rig, L.crates || 0);
+  if (ghost) rig.root.traverse((o) => { if (o.isMesh && o.material === MAT.lit) o.material = MAT.ghost; o.castShadow = false; });
+  return rig;
 }
 
 // ---------------------------------------------------------------- tower ----
 export function buildTower(look, { ghost = false } = {}) {
+  if (look.model && TOWER_MODELS[look.model]) return buildModelTower(look, look.model, ghost);
   const L = { skin: '#e8b98f', shirt: '#456', pants: '#333', face: 'smile', ...look };
   const rig = newRig();
   rig.body.scale.setScalar(CHAR_SCALE * (L.scale || 1));
@@ -666,6 +743,71 @@ function buildFlyer(rig, L, { rng }) {
     rig.wings.push(wing);
   }
   rig.flyer = true;
+}
+
+// --------------------------------------------------------------- sentry ----
+/**
+ * Engineer sentry turret. Tier follows the Engineer's level when it was built:
+ * 0-1 light gun, 2-3 rapid-fire with radar, 4-5 heavy, 6 heavy + rocket pods.
+ * Returns { root, turret, barrels, muzzle, shield }.
+ */
+export function buildSentry(stats, tier = 0) {
+  const root = new THREE.Group();
+  const heavy = tier >= 4, rapid = tier >= 2;
+  const S = heavy ? 1.25 : 1;
+  const base = new PartBuilder();
+  // tripod legs + hub
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
+    base.box(0.16, 1.15, 0.16, '#2b2d31', Math.sin(a) * 0.42 * S, 0.5, Math.cos(a) * 0.42 * S, { rx: Math.cos(a) * 0.45, rz: -Math.sin(a) * 0.45, r: 0.03 });
+    base.box(0.3, 0.1, 0.3, '#1d1e21', Math.sin(a) * 0.68 * S, 0.05, Math.cos(a) * 0.68 * S, { r: 0.03 });
+  }
+  base.cyl(0.32 * S, 0.38 * S, 0.3, '#3a3d42', 0, 1.05, 0, { seg: 12 });
+  base.cyl(0.4 * S, 0.4 * S, 0.08, '#d8a838', 0, 0.9, 0, { seg: 12 });
+  root.add(base.build());
+
+  const turret = new THREE.Group();
+  turret.position.y = 1.25;
+  const tb = new PartBuilder();
+  tb.rbox(0.9 * S, 0.62 * S, 1.05 * S, heavy ? '#5a2a2a' : '#7a2f30', 0, 0.25 * S, 0, { r: 0.1 });
+  tb.box(0.95 * S, 0.12, 0.6 * S, '#d8a838', 0, 0.6 * S, -0.1, { r: 0.03 });       // gold trim
+  tb.box(0.5 * S, 0.35 * S, 0.5 * S, '#2b2d31', 0, 0.3 * S, -0.62 * S, { r: 0.05 }); // ammo box
+  tb.box(0.08, 0.3, 0.08, '#111', 0.3 * S, 0.72 * S, -0.2, {});                      // sight post
+  if (rapid) { // little radar dish
+    tb.cyl(0.04, 0.04, 0.4, '#222', -0.3 * S, 0.85 * S, -0.3, {});
+    tb.cyl(0.26, 0.05, 0.1, '#c9ced6', -0.3 * S, 1.08 * S, -0.3, { rx: -0.8, seg: 10 });
+  }
+  if (tier >= 6) for (const x of [-1, 1]) { // rocket pods
+    tb.rbox(0.42, 0.42, 0.9, '#3b402d', x * 0.75 * S, 0.35 * S, 0.1, { r: 0.08 });
+    for (const [dx, dy] of [[-0.1, -0.1], [0.1, -0.1], [-0.1, 0.1], [0.1, 0.1]]) tb.cyl(0.07, 0.07, 0.06, '#d84a2a', x * 0.75 * S + dx, 0.35 * S + dy, 0.57, { rx: Math.PI / 2, seg: 6, glow: true });
+  }
+  turret.add(tb.build());
+  // barrels (recoil group)
+  const barrels = new THREE.Group();
+  barrels.position.set(0, 0.28 * S, 0.5 * S);
+  const bb = new PartBuilder();
+  const n = rapid ? 2 : 1;
+  for (let i = 0; i < n; i++) {
+    const x = n === 1 ? 0 : (i - 0.5) * 0.24 * S;
+    bb.cyl(0.08 * S, 0.08 * S, 1.0 * S, '#1d1e21', x, 0, 0.5 * S, { rx: Math.PI / 2, seg: 8 });
+    bb.cyl(0.11 * S, 0.11 * S, 0.16, '#111214', x, 0, 1.0 * S, { rx: Math.PI / 2, seg: 8 });
+  }
+  if (heavy) bb.box(0.5 * S, 0.3 * S, 0.5, '#2b2d31', 0, 0, 0.2, { r: 0.05 });
+  barrels.add(bb.build());
+  turret.add(barrels);
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0, 1.1 * S); barrels.add(muzzle);
+  root.add(turret);
+
+  let shield = null;
+  if (stats.shield) {
+    shield = new THREE.Mesh(new THREE.SphereGeometry(1.35 * S, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: '#7fd4ff', transparent: true, opacity: 0.22, depthWrite: false, toneMapped: false }));
+    shield.material.userData.owned = true;
+    root.add(shield);
+  }
+  root.scale.setScalar(CHAR_SCALE * 1.35);
+  root.userData.s = CHAR_SCALE * 1.35;
+  return { root, turret, barrels, muzzle, shield };
 }
 
 // ----------------------------------------------------------- base plate ----

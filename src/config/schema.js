@@ -20,15 +20,15 @@ export const ATTACKS = {
 export const WEAPONS = ['rifle', 'rifle_scoped', 'sniper', 'drill', 'drill_big', 'shotgun', 'shotgun_auto', 'launcher', 'launcher_drum', 'flamer', 'minigun', 'minigun_twin', 'tesla', 'pistol', 'clipboard', 'sword', 'sword_bright', 'hammer'];
 export const HATS = ['none', 'cap', 'helmet', 'beret', 'boonie', 'officer', 'welder', 'bandana'];
 export const HAIR = ['none', 'short', 'ponytail', 'long'];
-export const FACES = ['smirk', 'angry', 'smile', 'grin', 'determined', 'none'];
+export const FACES = ['smirk', 'angry', 'smile', 'grin', 'determined', 'scowl', 'confident', 'cocky', 'none'];
 export const LOOK_KEYS = ['skin', 'shirt', 'pants', 'shoes', 'sleeves', 'gloves', 'face', 'facePaint', 'hat', 'hatColor', 'hair', 'hairColor',
   'vest', 'pouches', 'belt', 'buckles', 'kneepads', 'legStraps', 'bandolier', 'backpack', 'tank', 'medals', 'radio', 'cape', 'ghillie',
-  'goggles', 'sunglasses', 'weapon', 'crates', 'scale'];
+  'goggles', 'sunglasses', 'weapon', 'crates', 'scale', 'model'];
 export const ENEMY_BODIES = ['walker', 'runner', 'crawler', 'bloater', 'brute', 'heavy', 'abomination', 'knight', 'warlock', 'flyer'];
 export const ENEMY_ABILITIES = ['spit', 'haste', 'heal', 'summon', 'slam', 'enrage', 'deathSpawn'];
 const STAT_EXTRA = ['flameColor'];
 const UPGRADE_KEYS = ['name', 'cost', 'desc', 'set', 'add', 'mul', 'look'];
-const TOWER_KEYS = ['name', 'role', 'description', 'cost', 'footprint', 'limit', 'look', 'stats', 'upgrades'];
+const TOWER_KEYS = ['name', 'role', 'description', 'cost', 'sellRate', 'footprint', 'limit', 'look', 'stats', 'upgrades'];
 const ROLES = ['Damage', 'Splash', 'Support', 'Economy'];
 
 export function validateContent() {

@@ -179,6 +179,22 @@ export function faceTexture(style, opts = {}) {
       g.fillStyle = ink; g.beginPath(); g.moveTo(40, 76); g.quadraticCurveTo(64, 108, 88, 76); g.closePath(); g.fill();
       g.fillStyle = '#f4f4f0'; g.fillRect(46, 77, 36, 7);
       break;
+    case 'scowl': // angry brows + one-sided smirk (Soldier)
+      eye(46, 60, 9, 12); eye(82, 60, 9, 12);
+      line([30, 42, 56, 53], 8); line([98, 42, 72, 53], 8);
+      line([50, 88, 66, 90, 82, 81], 6);
+      break;
+    case 'confident': // arched brows, small smirk (Engineer)
+      eye(46, 60, 10, 13); eye(82, 60, 10, 13);
+      line([34, 49, 44, 44, 57, 48], 5); line([94, 49, 84, 44, 71, 48], 5);
+      line([54, 88, 68, 90, 80, 83], 5);
+      break;
+    case 'cocky': // slanted brows, wide crooked smile (Minigunner)
+      eye(46, 58, 9, 12); eye(82, 58, 9, 12);
+      line([32, 42, 56, 51], 7); line([96, 42, 72, 51], 7);
+      g.fillStyle = ink; g.beginPath(); g.moveTo(42, 78); g.quadraticCurveTo(62, 104, 90, 74); g.closePath(); g.fill();
+      g.fillStyle = '#f4f4f0'; g.fillRect(48, 79, 36, 7);
+      break;
     case 'determined':
       eye(46, 58, 9, 12); eye(82, 58, 9, 12);
       line([32, 46, 56, 48], 7); line([96, 46, 72, 48], 7);

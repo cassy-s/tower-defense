@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Blockade - reference check</title>
+<script type="importmap">{ "imports": { "three": "../vendor/three.module.js" } }</script>
+<style>
+  body { margin: 0; background: #fff; font: 14px system-ui, sans-serif; padding: 10px; }
+  .row { display: flex; gap: 6px; align-items: flex-end; }
+  figure { margin: 0; text-align: center; }
+  img { width: 260px; height: 260px; display: block; }
+  figcaption { font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="row" id="row"></div>
+<script type="module">
+  // Renders the Blender-made towers big, from the same kind of angle as the
+  // reference art, so they can be compared side by side.
+  import { Portraits } from '../src/render/portraits.js';
+  import { buildTower, MODEL_POSES } from '../src/render/characters.js';
+  // ?pose=soldier.idle.mountRot:0.3,0.5,0 tweaks a pose without editing code.
+  for (const s of new URLSearchParams(location.search).getAll('pose')) {
+    const [path, nums] = s.split(':'); const [m, which, key] = path.split('.');
+    MODEL_POSES[m][which][key] = nums.split(',').map(Number);
+  }
+  import { computeStats } from '../src/game/tower.js';
+  const q = new URLSearchParams(location.search);
+  const ids = (q.get('ids') || 'rifleman,riveter,gatling').split(',');
+  const level = +(q.get('level') || 0);
+  const yaws = (q.get('yaw') || '0.45').split(',').map(Number);
+  const p = new Portraits();
+  const REF = { rifleman: 'soldier', riveter: 'engineer', gatling: 'minigunner' };
+  for (const id of ids) {
+    if (q.get('refs') && REF[id]) { const f = document.createElement('figure'); f.innerHTML = `<img src="refs/${REF[id]}.png" style="object-fit:contain"><figcaption>reference</figcaption>`; document.getElementById('row').appendChild(f); }
+    for (const yaw of yaws) {
+    const rig = buildTower(computeStats(id, level).look);
+    const url = p.shoot(rig.root, { w: 600, h: 600, yaw, pitch: +(q.get('pitch') || 0.12), pad: 1.0 });
+    const f = document.createElement('figure');
+    f.innerHTML = `<img src="${url}"><figcaption>${id} L${level} yaw ${yaw}</figcaption>`;
+    document.getElementById('row').appendChild(f);
+  } }
+  document.body.dataset.ready = '1';
+</script>
+</body>
+</html>

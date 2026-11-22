@@ -3,7 +3,7 @@
 // what the simulation is doing.
 import * as THREE from 'three';
 import { buildWorld, toWorld } from './world.js';
-import { buildTower, buildZombie, zombieVariant, buildPlate, animateZombie, cloneRig, markShared } from './characters.js';
+import { buildTower, buildZombie, zombieVariant, buildPlate, animateZombie, cloneRig, markShared, buildSentry } from './characters.js';
 
 const zombieTemplates = new Map();
 const projTemplates = new Map();
@@ -15,6 +15,7 @@ import { computeStats } from '../game/tower.js';
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
 const ENEMY_HEIGHT = 3.4;
+const DISSOLVE_TIME = 0.55;
 const FLY_Y = 3.6;
 
 // Shared health bar pieces
@@ -58,6 +59,8 @@ export class View {
     this.projViews = new Map();
     this.dying = [];
     this.flyers = [];
+    this.sentryViews = new Map();
+    this.dyingSentries = [];
     this.world = null;
     this.game = null;
     this.unsub = [];
@@ -136,6 +139,85 @@ export class View {
     on('income', ({ tower, amount }) => { const [x, z] = toWorld(tower.x, tower.z); this.fx.text({ x, y: 3, z }, `+$${amount}`, 'cash'); });
     on('rally', ({ tower }) => { const [x, z] = toWorld(tower.x, tower.z); this.fx.ring(x, z, tower.range, '#ffd34a', 0.8); });
     on('airstrike', ({ targets }) => this.onAirstrike(targets));
+    on('sentryBuilding', (d) => this.onSentryBuilding(d));
+    on('sentrySpawn', ({ sentry }) => this.addSentry(sentry));
+    on('sentryGone', ({ sentry, reason }) => this.removeSentry(sentry, reason));
+    on('sentryShot', (d) => this.onSentryShot(d));
+    on('sentryRocket', (d) => this.onSentryRocket(d));
+    on('sentryHurt', ({ sentry }) => { const sv = this.sentryViews.get(sentry.id); if (sv) { sv.hurt = 1; this.fx.sparks({ x: sv.root.position.x, y: 1, z: sv.root.position.z }, '#ffd36a', 6, 5); } });
+  }
+
+  // ---------------------------------------------------------- sentries ----
+  addSentry(s) {
+    const model = buildSentry(s.stats, s.tier);
+    const root = new THREE.Group();
+    const [x, z] = toWorld(s.x, s.z);
+    root.position.set(x, 0, z);
+    root.add(model.root);
+    const bar = new THREE.Group();
+    const bg = new THREE.Mesh(barGeo, barMat.bg), fill = new THREE.Mesh(barGeo, barMat.shield);
+    bg.renderOrder = 10; fill.renderOrder = 11;
+    bg.scale.set(1.5, 0.22, 1); fill.scale.set(1.4, 0.14, 1); fill.position.z = 0.01;
+    bar.add(bg, fill); bar.position.y = 2.3;
+    root.add(bar);
+    this.scene.add(root);
+    const sv = { sentry: s, root, model, bar, fill, yaw: s.angle, recoil: 0, rise: 0, hurt: 0 };
+    model.turret.rotation.y = s.angle;
+    this.sentryViews.set(s.id, sv);
+    this.fx.ring(x, z, 1.6, '#d8a838', 0.45);
+    this.fx.sparks({ x, y: 0.8, z }, '#ffd36a', 14, 7);
+    this.onSound?.('build');
+  }
+
+  removeSentry(s, reason) {
+    const sv = this.sentryViews.get(s.id);
+    if (!sv) return;
+    this.sentryViews.delete(s.id);
+    const p = sv.root.position;
+    this.fx.goo({ x: p.x, y: 0.8, z: p.z }, '#2b2d31', 8, 5);
+    this.fx.goo({ x: p.x, y: 0.8, z: p.z }, '#7a2f30', 4, 4);
+    for (let i = 0; i < 6; i++) this.fx.lit.spawn({ x: p.x + (Math.random() - 0.5), y: 0.6 + Math.random(), z: p.z + (Math.random() - 0.5), vy: 1.5, size: 0.5, life: 0.9, mode: 2, color: '#6a6a6a' });
+    if (reason === 'destroyed') this.fx.explosion(p.x, p.z, 1.2);
+    sv.dieT = 0;
+    this.dyingSentries.push(sv);
+  }
+
+  onSentryBuilding({ tower, x, z, time }) {
+    const [wx, wz] = toWorld(x, z);
+    this.fx.ring(wx, wz, 1.4, '#ffd34a', time);
+    const n = 6;
+    for (let i = 0; i < n; i++) this.later((i / n) * time, () => this.fx.sparks({ x: wx + (Math.random() - 0.5) * 0.8, y: 0.4 + Math.random() * 0.6, z: wz + (Math.random() - 0.5) * 0.8 }, '#ffd36a', 4, 5));
+    const tv = this.towerViews.get(tower.id);
+    if (tv) tv.building = time;
+  }
+
+  onSentryShot({ sentry, enemy }) {
+    const sv = this.sentryViews.get(sentry.id);
+    if (!sv) return;
+    sv.recoil = 1;
+    sv.root.updateMatrixWorld(true);
+    const from = sv.model.muzzle.getWorldPosition(new THREE.Vector3());
+    const to = this.enemyCenter(enemy);
+    to.x += (Math.random() - 0.5) * 0.3; to.z += (Math.random() - 0.5) * 0.3;
+    this.fx.tracer(from, to, '#ffe08a', 0.05, 0.05);
+    _v.set(to.x - from.x, 0, to.z - from.z).normalize();
+    this.fx.muzzle(from, _v, '#ffc84a', 0.3);
+    if (Math.random() < 0.5) { const ev = this.enemyViews.get(enemy.id); this.fx.goo(to, ev ? ev.gore : '#3a5a2a', 1, 3); }
+    if (Math.random() < 0.35) this.onSound?.('shot', sentry);
+  }
+
+  onSentryRocket({ sentry, x, z, delay, i }) {
+    const sv = this.sentryViews.get(sentry.id);
+    if (!sv) return;
+    sv.root.updateMatrixWorld(true);
+    const from = sv.model.muzzle.getWorldPosition(new THREE.Vector3());
+    from.x += (i ? 0.5 : -0.5);
+    const [tx, tz] = toWorld(x, z);
+    const T = delay, g = 14;
+    const vy = (1.2 - from.y + 0.5 * g * T * T) / T;
+    this.fx.lit.spawn({ x: from.x, y: from.y, z: from.z, vx: (tx - from.x) / T, vy, vz: (tz - from.z) / T, size: 0.32, sz: 0.6, life: T, gravity: g, spin: 0, color: '#3b402d' });
+    for (let k = 0; k < 5; k++) this.later((k / 5) * T, () => this.fx.lit.spawn({ x: from.x + (tx - from.x) * (k / 5), y: from.y + 1.5 * Math.sin((k / 5) * Math.PI), z: from.z + (tz - from.z) * (k / 5), vy: 0.6, size: 0.35, life: 0.6, mode: 2, color: '#9a9a9a' }));
+    this.onSound?.('launch', sentry);
   }
 
   clear() {
@@ -146,11 +228,14 @@ export class View {
     for (const d of this.dying) { this.scene.remove(d.root); disposeTree(d.root); }
     for (const p of this.projViews.values()) this.scene.remove(p);
     for (const f of this.flyers) { this.scene.remove(f.obj); disposeTree(f.obj); }
+    for (const sv of [...this.sentryViews.values(), ...this.dyingSentries]) { this.scene.remove(sv.root); disposeTree(sv.root); }
+    this.sentryViews.clear(); this.dyingSentries = [];
     this.timers = [];
     this.towerViews.clear(); this.enemyViews.clear(); this.projViews.clear(); this.dying = []; this.flyers = [];
     if (this.world) { this.scene.remove(this.world.group); disposeTree(this.world.group); this.world = null; }
     this.hideGhost();
     this.range.visible = false;
+    this.showBuilderRings(0, 0, null);
     this.selected = null;
     this.selRing.visible = false;
   }
@@ -231,6 +316,7 @@ export class View {
     const ev = this.enemyViews.get(enemy.id);
     this.fx.goo(to, ev ? ev.gore : '#3a5a2a', heavy ? 6 : 2, heavy ? 5 : 3);
     if (enemy.armor > 0 && s.armorPierce < 0.5) this.fx.sparks(to, '#ffffff', 2, 3);
+    if (s.attack === 'hitscan' || (s.attack === 'spinup' && Math.random() < 0.45)) this.ejectCasing(tv);
     if (this.onSound) this.onSound(heavy ? 'sniper' : tower.stats.attack === 'spinup' ? 'minigun' : 'shot', tower);
   }
 
@@ -335,7 +421,13 @@ export class View {
     ev.deathT = 0;
     this.dying.push(ev);
     const c = this.enemyCenter(e);
-    this.fx.death(c, ev.gore, e.size);
+    // Disintegrate instead of falling over: a burst of the zombie's own colours
+    // drifting up and away, then the rest dissolves over DISSOLVE_TIME.
+    ev.dust = this.prepareDust(ev, 60);
+    const a = Math.random() * Math.PI * 2;
+    ev.wind = { x: Math.cos(a) * 0.8 + e.dx * 0.6, z: Math.sin(a) * 0.8 + e.dz * 0.6 };
+    this.dustFrom(ev, Math.round(Math.min(60, 26 * e.size) * this.fx.quality));
+    for (let i = 0; i < 6; i++) this.fx.glow.spawn({ x: c.x + (Math.random() - 0.5) * e.size, y: c.y + (Math.random() - 0.5) * e.size * 1.5, z: c.z + (Math.random() - 0.5) * e.size, vy: 2.5, size: 0.12, life: 0.5, color: '#fff1c0' });
     if (e.boss) { this.fx.explosion(c.x, c.z, 4); this.fx.text({ ...c, y: c.y + 2 }, `+$${Math.round(e.bounty)}`, 'cash big'); }
     this.onSound?.(e.boss ? 'bossDie' : 'die');
   }
@@ -442,6 +534,7 @@ export class View {
     this.ghost.rig.root.rotation.y = Math.atan2(WIDTH / 2 - x, HEIGHT / 2 - z);
     this.ghost.rig.root.visible = true;
     this.showRange(wx, wz, computeStats(type, 0).stats.range, ok ? '#9dff8a' : '#ff3a2a');
+    this.showBuilderRings(wx, wz, computeStats(type, 0).stats);
     const fp = TOWERS[type].footprint || 1.5;
     this.foot.visible = true; this.foot.position.set(wx, 0.2, wz); this.foot.scale.set(fp, 1, fp);
     this.foot.material.color.set(ok ? '#7dff6a' : '#ff3a2a');
@@ -450,7 +543,7 @@ export class View {
   hideGhost() {
     if (this.foot) this.foot.visible = false;
     if (this.ghost) { this.scene.remove(this.ghost.rig.root); disposeTree(this.ghost.rig.root); this.ghost = null; }
-    if (this.selected) this.showRangeFor(this.selected); else this.range.visible = false;
+    if (this.selected) this.showRangeFor(this.selected); else { this.range.visible = false; this.showBuilderRings(0, 0, null); }
   }
 
   showRange(wx, wz, r, color = '#ffffff') {
@@ -464,13 +557,28 @@ export class View {
   showRangeFor(t) {
     const [x, z] = toWorld(t.x, t.z);
     this.showRange(x, z, t.range, t.stats.aura ? '#ffd34a' : '#bfe6ff');
+    this.showBuilderRings(x, z, t.stats);
+  }
+
+  /** Engineer: yellow ring = where sentries go, red ring = dead zone. */
+  showBuilderRings(x, z, stats) {
+    if (!this.builderRings) {
+      const mk = (color) => { const m = new THREE.Mesh(new THREE.RingGeometry(0.93, 1, 64).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false })); m.position.y = 0.18; this.scene.add(m); return m; };
+      this.builderRings = { build: mk('#ffd34a'), dead: mk('#ff4a3a') };
+    }
+    const { build, dead } = this.builderRings;
+    const on = !!(stats && stats.scrapMax);
+    build.visible = dead.visible = on;
+    if (!on) return;
+    build.position.set(x, 0.18, z); build.scale.set(stats.buildRange, 1, stats.buildRange);
+    dead.position.set(x, 0.19, z); dead.scale.set(stats.deadzone, 1, stats.deadzone);
   }
 
   select(t) {
     this.selected = t;
     this.selRing.visible = !!t;
     if (t) { const [x, z] = toWorld(t.x, t.z); this.selRing.position.set(x, 0.25, z); this.selRing.scale.setScalar(t.footprint * 1.05); }
-    if (t) this.showRangeFor(t); else if (!this.ghost) this.range.visible = false;
+    if (t) this.showRangeFor(t); else if (!this.ghost) { this.range.visible = false; this.showBuilderRings(0, 0, null); }
   }
 
   // -------------------------------------------------------------- input ---
@@ -579,27 +687,8 @@ export class View {
     const game = this.game;
     if (!game) return;
 
-    for (const tv of this.towerViews.values()) {
-      const t = tv.tower, rig = tv.rig;
-      let d = t.angle - tv.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
-      tv.yaw += d * Math.min(1, dt * 14);
-      rig.root.rotation.y = tv.yaw;
-      rig.body.position.y = Math.sin(this.time * 2 + t.id) * 0.03;
-      if (tv.recoil > 0) {
-        tv.recoil = Math.max(0, tv.recoil - dt * 9);
-        rig.mount.position.z = rig.restMountZ - tv.recoil * 0.35;
-        rig.armR.rotation.x = rig.restArmR - tv.recoil * 0.12;
-        rig.armL.rotation.x = rig.restArmL - tv.recoil * 0.1;
-      }
-      const spinning = t.stats.attack === 'spinup' ? t.spin : t.firing ? 0.6 : 0.05;
-      for (const s of rig.spinners) s.rotation.z += dt * spinning * 30;
-      if (t.stats.attack === 'spinup' && t.spin > 0.3 && t.firing === false) rig.mount.position.z = rig.restMountZ;
-      tv.stars.visible = t.stunTimer > 0;
-      if (tv.stars.visible) { tv.stars.rotation.y += dt * 5; rig.body.rotation.z = Math.sin(this.time * 12) * 0.08; } else rig.body.rotation.z = 0;
-      if (tv.pop > 0) { tv.pop = Math.max(0, tv.pop - dt * 4); const k = 1 + Math.sin(tv.pop * Math.PI) * 0.15; rig.root.scale.set(k, 1 + Math.sin(tv.pop * Math.PI) * 0.25, k); }
-      const buffed = t.buff.rally;
-      if (buffed && Math.random() < dt * 6) this.fx.glow.spawn({ x: tv.root.position.x + (Math.random() - 0.5) * 1.5, y: 0.5, z: tv.root.position.z + (Math.random() - 0.5) * 1.5, vy: 3, size: 0.15, life: 0.5, color: '#ffd34a' });
-    }
+    for (const tv of this.towerViews.values()) this.animateTower(tv, dt);
+    this.updateSentries(dt);
 
     if (this.selRing.visible) { const k = 1 + Math.sin(this.time * 6) * 0.06; const f = this.selected ? this.selected.footprint * 1.05 : 1; this.selRing.scale.set(f * k, 1, f * k); }
     for (const ev of this.enemyViews.values()) this.syncEnemy(ev, dt);
@@ -607,15 +696,16 @@ export class View {
     for (let i = this.dying.length - 1; i >= 0; i--) {
       const ev = this.dying[i];
       ev.deathT += dt;
-      const k = ev.deathT;
+      const k = Math.min(1, ev.deathT / DISSOLVE_TIME);
       const rig = ev.rig;
-      if (ev.enemy.flying) { ev.root.position.y = Math.max(0, ev.root.position.y - dt * 8); rig.root.rotation.z += dt * 6; }
-      else {
-        rig.body.rotation.x = Math.max(-Math.PI / 2, -k * 6) ;
-        rig.body.position.y = Math.max(-0.2, 0.3 - k * 0.6);
-      }
-      if (k > 0.55) ev.root.position.y -= dt * 2.5;
-      if (k > 1.2) { this.scene.remove(ev.root); disposeTree(ev.root); this.dying.splice(i, 1); }
+      if (ev.enemy.flying) ev.root.position.y = Math.max(0, ev.root.position.y - dt * 3);
+      // Disintegrate: the body flickers, stretches up and thins out into the floating dust.
+      const s = 1 - k * k;
+      rig.root.scale.set(s, 1 + k * 0.35, s);
+      rig.root.position.y = (rig.root.position.y || 0) + dt * 0.8;
+      rig.root.visible = k < 0.9 && !(k > 0.35 && Math.floor(ev.deathT * 40) % 3 === 0);
+      if (k > 0.05 && k < 0.9 && Math.random() < dt * 40) this.dustFrom(ev, 3);
+      if (k >= 1) { this.scene.remove(ev.root); disposeTree(ev.root); this.dying.splice(i, 1); }
     }
 
     for (const m of this.projViews.values()) {
@@ -624,7 +714,136 @@ export class View {
       if (p.kind === 'bolt') { m.position.set(x, 1.4, z); m.rotation.set(0, Math.atan2(p.vx, p.vz), 0); m.rotateZ(this.time * 30); }
       else { m.position.set(x, p.y ?? 1.6, z); m.rotation.x += dt * 8; m.rotation.y += dt * 5; }
     }
+    this.updateWorldBits(dt);
+  }
 
+  // ----------------------------------------------------- tower animation --
+  animateTower(tv, dt) {
+    const t = tv.tower, rig = tv.rig;
+    let d = t.angle - tv.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+    tv.yaw += d * Math.min(1, dt * 14);
+    rig.root.rotation.y = tv.yaw;
+    const ph = this.time + t.id * 1.7;
+    // Aim: raise the weapon while there is a target, lower it a bit when idle.
+    const engaged = !!(t.firing || (t.stats.attack === 'spinup' && t.spin > 0.05));
+    if (engaged) tv.idleT = 0; else tv.idleT = (tv.idleT || 0) + dt;
+    const aimTarget = tv.idleT > 1.2 ? 0 : 1;
+    tv.aim = (tv.aim ?? 0) + (aimTarget - (tv.aim ?? 0)) * Math.min(1, dt * 5);
+    const lower = (1 - tv.aim) * 0.32;
+    if (tv.recoil > 0) tv.recoil = Math.max(0, tv.recoil - dt * 10);
+    const r = tv.recoil * (rig.model === 'minigunner' ? 0.45 : 1);
+    // breathing + idle look-around
+    rig.body.position.y = Math.sin(ph * 2) * 0.03;
+    rig.torso.scale.y = 1 + Math.sin(ph * 2.2) * 0.012;
+    rig.head.rotation.y = Math.sin(ph * 0.6) * 0.22 * (1 - tv.aim);
+    rig.head.rotation.x = (rig.restHeadX || 0) + lower * 0.25;
+    rig.body.position.z = -r * 0.1;
+    rig.torso.rotation.x = -r * 0.05;
+    if (rig.poseIdle) {
+      // Blend the reference-art idle pose into the firing pose.
+      const I = rig.poseIdle, A = rig.poseAim, k = tv.aim, mix = (a, b, i) => a[i] + (b[i] - a[i]) * k;
+      rig.armR.rotation.set(mix(I.armR, A.armR, 0) - r * 0.2, mix(I.armR, A.armR, 1), mix(I.armR, A.armR, 2));
+      rig.armL.rotation.set(mix(I.armL, A.armL, 0) - r * 0.15, mix(I.armL, A.armL, 1), mix(I.armL, A.armL, 2));
+      rig.mount.position.set(mix(I.mount, A.mount, 0), mix(I.mount, A.mount, 1), mix(I.mount, A.mount, 2) - r * 0.32);
+      rig.mount.rotation.set(mix(I.mountRot, A.mountRot, 0) - r * 0.14, mix(I.mountRot, A.mountRot, 1), mix(I.mountRot, A.mountRot, 2));
+    } else {
+      rig.armR.rotation.x = rig.restArmR + lower - r * 0.2;
+      rig.armL.rotation.x = rig.restArmL + lower * 0.9 - r * 0.15;
+      rig.mount.position.z = rig.restMountZ - r * 0.32 - lower * 0.35;
+      rig.mount.position.y = rig.restMountY - lower * 0.9;
+      rig.mount.rotation.x = lower * 0.55 - r * 0.14;
+    }
+    // Minigun: shake while spinning.
+    if (t.stats.attack === 'spinup' && t.spin > 0.2) {
+      const j = t.spin * 0.04;
+      rig.mount.position.x = (rig.pose?.mount?.[0] ?? rig.mount.position.x) + (Math.random() - 0.5) * j;
+      rig.body.position.y += (Math.random() - 0.5) * j;
+    }
+    // Engineer: hammering while she builds a sentry.
+    if (tv.building > 0) {
+      tv.building -= dt;
+      const hit = Math.abs(Math.sin(this.time * 13));
+      rig.armR.rotation.x = -0.4 - hit * 1.3;
+      rig.armL.rotation.x = -0.6;
+      rig.mount.position.y = rig.restMountY - 0.9; rig.mount.rotation.x = 0.7;
+      rig.body.position.y = -0.12 * hit;
+      rig.head.rotation.x = 0.35;
+    }
+    const spinning = t.stats.attack === 'spinup' ? t.spin : t.firing ? 0.6 : 0.05;
+    for (const s of rig.spinners) s.rotation.z += dt * spinning * 34;
+    tv.stars.visible = t.stunTimer > 0;
+    if (tv.stars.visible) { tv.stars.rotation.y += dt * 5; rig.body.rotation.z = Math.sin(this.time * 12) * 0.08; } else rig.body.rotation.z = 0;
+    if (tv.pop > 0) { tv.pop = Math.max(0, tv.pop - dt * 4); const k = 1 + Math.sin(tv.pop * Math.PI) * 0.15; rig.root.scale.set(k, 1 + Math.sin(tv.pop * Math.PI) * 0.25, k); }
+    const buffed = t.buff.rally;
+    if (buffed && Math.random() < dt * 6) this.fx.glow.spawn({ x: tv.root.position.x + (Math.random() - 0.5) * 1.5, y: 0.5, z: tv.root.position.z + (Math.random() - 0.5) * 1.5, vy: 3, size: 0.15, life: 0.5, color: '#ffd34a' });
+  }
+
+  /** Brass shell casings flicked out of the right side of the gun. */
+  ejectCasing(tv) {
+    if (!tv.rig?.weaponGroup) return;
+    tv.rig.weaponGroup.updateMatrixWorld(true);
+    const p = tv.rig.weaponGroup.localToWorld(_v.set(0.3, 0.3, 0.4));
+    const yaw = tv.yaw + Math.PI / 2;
+    this.fx.lit.spawn({ x: p.x, y: p.y, z: p.z, vx: Math.sin(yaw) * (2 + Math.random() * 1.5), vy: 3 + Math.random() * 2, vz: Math.cos(yaw) * (2 + Math.random() * 1.5), size: 0.09, sz: 0.18, life: 0.7, gravity: 22, spin: 20, color: '#d8a838' });
+  }
+
+  updateSentries(dt) {
+    for (const sv of this.sentryViews.values()) {
+      const s = sv.sentry, m = sv.model;
+      let d = s.angle - sv.yaw; d = Math.atan2(Math.sin(d), Math.cos(d));
+      sv.yaw += d * Math.min(1, dt * 12);
+      m.turret.rotation.y = sv.yaw;
+      if (sv.rise < 1) { sv.rise = Math.min(1, sv.rise + dt * 3); const k = 1 - (1 - sv.rise) ** 3; m.root.scale.setScalar(m.root.userData.s * (0.2 + 0.8 * k)); m.root.position.y = (1 - k) * -0.6; }
+      if (sv.recoil > 0) { sv.recoil = Math.max(0, sv.recoil - dt * 14); m.barrels.position.z = 0.5 * (s.tier >= 4 ? 1.25 : 1) - sv.recoil * 0.18; }
+      if (!s.target) m.turret.rotation.y = sv.yaw + Math.sin(this.time * 0.9 + s.id) * 0.5; // idle scan
+      if (m.shield) { m.shield.material.opacity = 0.16 + Math.sin(this.time * 3 + s.id) * 0.05 + sv.hurt * 0.3; m.shield.rotation.y += dt * 0.5; }
+      if (sv.hurt > 0) sv.hurt = Math.max(0, sv.hurt - dt * 3);
+      // lifespan bar
+      sv.bar.visible = !this.menuMode;
+      sv.bar.quaternion.copy(this.camera.quaternion);
+      const k = Math.max(0, s.hp / s.maxHp);
+      sv.fill.scale.x = 1.4 * k; sv.fill.position.x = -1.4 * (1 - k) / 2;
+      sv.fill.material = k < 0.25 ? barMat.low : barMat.shield;
+    }
+    for (let i = this.dyingSentries.length - 1; i >= 0; i--) {
+      const sv = this.dyingSentries[i];
+      sv.dieT += dt;
+      const k = Math.min(1, sv.dieT / 0.3);
+      sv.model.root.scale.setScalar(sv.model.root.userData.s * (1 - k));
+      sv.bar.visible = false;
+      if (k >= 1) { this.scene.remove(sv.root); disposeTree(sv.root); this.dyingSentries.splice(i, 1); }
+    }
+  }
+
+  /** Sample points on a zombie's body and blow them away as coloured voxel dust. */
+  dustFrom(ev, n) {
+    const pts = ev.dust;
+    if (!pts || !pts.length) return;
+    ev.root.updateMatrixWorld(true);
+    for (let i = 0; i < n; i++) {
+      const p = pts[(Math.random() * pts.length) | 0];
+      _v.copy(p.local).applyMatrix4(p.mesh.matrixWorld);
+      this.fx.lit.spawn({ x: _v.x, y: _v.y, z: _v.z, vx: (Math.random() - 0.5) * 1.6 + ev.wind.x, vy: 1.2 + Math.random() * 2.2, vz: (Math.random() - 0.5) * 1.6 + ev.wind.z, size: 0.18 + Math.random() * 0.2, life: 0.8 + Math.random() * 0.7, gravity: -1.5, drag: 1.2, spin: 4, color: p.color });
+    }
+  }
+
+  prepareDust(ev, count) {
+    const pts = [];
+    ev.rig.root.updateMatrixWorld(true);
+    const meshes = [];
+    ev.rig.root.traverse((o) => { if (o.isMesh && o.visible && o.geometry?.attributes?.color && o.parent?.visible !== false) meshes.push(o); });
+    if (!meshes.length) return pts;
+    for (let i = 0; i < count; i++) {
+      const mesh = meshes[(Math.random() * meshes.length) | 0];
+      const pos = mesh.geometry.attributes.position, colA = mesh.geometry.attributes.color;
+      const j = (Math.random() * pos.count) | 0;
+      const c = new THREE.Color(colA.getX(j), colA.getY(j), colA.getZ(j));
+      pts.push({ mesh, local: new THREE.Vector3().fromBufferAttribute(pos, j), color: '#' + c.getHexString() });
+    }
+    return pts;
+  }
+
+  updateWorldBits(dt) {
     for (let i = this.flyers.length - 1; i >= 0; i--) {
       const f = this.flyers[i];
       f.obj.position.x += f.vx * dt; f.life -= dt;

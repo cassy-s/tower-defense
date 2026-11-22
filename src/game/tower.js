@@ -1,5 +1,6 @@
 // Tower simulation (pure logic, no rendering).
 import { TOWERS, STAT_DEFAULTS } from '../config/towers.js';
+import { findSentrySpot } from './sentry.js';
 
 let nextId = 1;
 
@@ -81,6 +82,7 @@ export class Tower {
     this.abilityActive = 0;
     this.target = null;
     this.firing = false;
+    this.scrap = 0; this.buildTimer = 0; this.buildSpot = null;
     this.buff = { cooldownMult: 1, rangeMult: 1, grantHidden: false, rally: false };
     this.refresh();
   }
@@ -96,7 +98,34 @@ export class Tower {
   get maxLevel() { return (this.def.upgrades || []).length; }
   get nextUpgrade() { return (this.def.upgrades || [])[this.level] || null; }
   get range() { return this.stats.range * this.buff.rangeMult; }
-  get sellValue() { return Math.floor(this.spent * 0.7); }
+  get sellValue() { return Math.floor(this.spent * (this.def.sellRate ?? 0.7)); }
+  get isBuilder() { return !!this.stats.scrapMax; }
+  get sentryCount() { return this.game.sentriesOf(this); }
+
+  /** Builder towers: fill the scrap meter, then stop briefly to put down a sentry. */
+  updateBuilder(dt) {
+    const s = this.stats;
+    if (this.buildTimer > 0) {
+      this.buildTimer -= dt;
+      if (this.buildTimer <= 0 && this.buildSpot) {
+        this.game.addSentry(this, this.buildSpot.x, this.buildSpot.z);
+        this.scrap = 0;
+        this.buildSpot = null;
+      }
+      return true;
+    }
+    if (this.scrap >= s.scrapMax && this.sentryCount < s.maxUnits) {
+      const spot = findSentrySpot(this.game, this);
+      if (!spot) return false;
+      this.buildSpot = spot;
+      this.buildTimer = 0.9;
+      this.angle = Math.atan2(spot.x - this.x, spot.z - this.z);
+      this.firing = false;
+      this.game.emit('sentryBuilding', { tower: this, x: spot.x, z: spot.z, time: 0.9 });
+      return true;
+    }
+    return false;
+  }
   get effectiveCooldown() {
     let c = this.stats.cooldown * this.buff.cooldownMult;
     if (this.buff.rally) c *= 0.5;
@@ -134,8 +163,10 @@ export class Tower {
   findTarget() {
     let best = null, bestScore = -Infinity;
     const mode = this.targeting;
+    const dz2 = (this.stats.deadzone || 0) ** 2;
     for (const e of this.game.enemies) {
       if (!this.canSee(e) || !this.inRange(e)) continue;
+      if (dz2 && (e.x - this.x) ** 2 + (e.z - this.z) ** 2 < dz2) continue;
       let score;
       if (mode === 'first') score = -e.remaining;
       else if (mode === 'last') score = e.remaining;
@@ -157,6 +188,7 @@ export class Tower {
     if (s.attack === 'none') return;
 
     if (this.cooldownTimer > 0) this.cooldownTimer -= dt;
+    if (s.scrapMax && this.updateBuilder(dt)) return;
 
     // Burst follow-up shots
     if (this.burstLeft > 0) {
@@ -212,7 +244,9 @@ export class Tower {
   /** Damage + every on-hit effect (burn, slow, custom hook). All attacks go through here. */
   applyHit(e, dmg = this.stats.damage) {
     if (!e.alive) return;
+    const before = this.damageDealt;
     e.damage(dmg, this.hitOpts());
+    if (this.stats.scrapMax) this.scrap = Math.min(this.stats.scrapMax, this.scrap + (this.damageDealt - before));
     this.applyStatus(e);
   }
 

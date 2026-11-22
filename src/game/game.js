@@ -6,6 +6,7 @@ import { DIFFICULTIES, getWave, waveBonus, waveHpScale } from '../config/waves.j
 import { Path } from './path.js';
 import { Enemy } from './enemy.js';
 import { Tower, computeStats } from './tower.js';
+import { Sentry } from './sentry.js';
 import { buildLayout } from './layout.js';
 import { mulberry32 } from './rng.js';
 
@@ -31,6 +32,7 @@ export class Game {
     this.autoStart = false;
     this.enemies = [];
     this.towers = [];
+    this.sentries = [];
     this.projectiles = [];
     this.spawnQueue = [];     // { at, type, pathIndex, mods, wave }
     this.waveOpen = new Map(); // wave -> zombies not yet resolved (pending + alive)
@@ -104,6 +106,7 @@ export class Game {
     const i = this.towers.indexOf(t);
     if (i < 0) return;
     this.towers.splice(i, 1);
+    for (const s of this.sentries.filter((s) => s.owner === t)) this.removeSentry(s, 'sold');
     this.addCash(t.sellValue, 'sell');
     this.emit('towerSold', { tower: t });
   }
@@ -189,6 +192,24 @@ export class Game {
       return;
     }
     this.resolveEnemy(e);
+  }
+
+  // ------------------------------------------------------------ sentries ---
+  sentriesOf(t) { let n = 0; for (const s of this.sentries) if (s.owner === t) n++; return n; }
+
+  addSentry(owner, x, z) {
+    const s = new Sentry(this, owner, x, z);
+    this.sentries.push(s);
+    this.emit('sentrySpawn', { sentry: s });
+    return s;
+  }
+
+  removeSentry(s, reason) {
+    const i = this.sentries.indexOf(s);
+    if (i < 0) return;
+    s.alive = false;
+    this.sentries.splice(i, 1);
+    this.emit('sentryGone', { sentry: s, reason });
   }
 
   // -------------------------------------------------------- projectiles ---
@@ -316,6 +337,7 @@ export class Game {
     for (const e of this.enemies) if (e.alive) e.update(dt);
     this.computeBuffs();
     for (const t of this.towers) t.update(dt);
+    for (const s of this.sentries.slice()) s.update(dt);
     this.updateProjectiles(dt);
 
     // Compact dead enemies (renderer keeps its own references for death anims).

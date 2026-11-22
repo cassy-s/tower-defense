@@ -174,6 +174,9 @@ export class Enemy {
       for (const t of game.towers) {
         if ((t.x - this.x) ** 2 + (t.z - this.z) ** 2 <= r2 && !t.stats.stunImmune) t.stun(a.stun);
       }
+      for (const s of game.sentries.slice()) {
+        if ((s.x - this.x) ** 2 + (s.z - this.z) ** 2 <= r2) s.hurt(s.maxHp * 0.4, a.stun);
+      }
       game.emit('slam', { enemy: this, radius: a.radius });
     }
   }

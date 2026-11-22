@@ -120,3 +120,33 @@ then make it appear: add it to `UNLOCK` in `src/config/waves.js` (wave it starts
 generated waves) or to a hand-written wave. Ability types: `spit`, `haste`, `heal`, `summon`, `slam`,
 `enrage`, `deathSpawn` (see `src/game/enemy.js`). Model bodies: `walker`, `runner`, `crawler`, `bloater`,
 `brute`, `heavy`, `abomination`, `knight`, `warlock`, `flyer`.
+
+## Blender-made characters (Soldier, Engineer, Minigunner)
+
+Three towers use models built in Blender: `rifleman` (Soldier), `riveter` (Engineer) and `gatling` (Minigunner).
+Their look in `towers.js` is just `{ model: 'soldier', weapon: 'rifle', ... }`.
+
+- The models are written as code in `tools/blender/build_towers.py`, one function per character.
+- Rebuild them with:
+  `"C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" -b --factory-startup --python tools/blender/build_towers.py`
+- That rebuild writes three things:
+  - `src/render/models/towers.gen.js`, which the game loads.
+  - `tools/blender/towers.blend`, which you can open in Blender.
+  - A preview render in `tools/blender/renders/`.
+- The holding poses live in `MODEL_POSES` in `src/render/characters.js`. Each character has an `idle` pose (the reference-art stance) and an `aim` pose (used while firing).
+- To compare the models against the references, open `/tools/refcheck.html?refs=1` with reference PNGs in `tools/refs/`. That folder is git-ignored.
+- Upgrade extras still layer on top of the model, as long as they differ from what the model already has: `hat`, `sunglasses`, `goggles`, `bandolier`, `medals`, and a different `weapon`.
+
+## Builder towers (sentries)
+
+Any tower becomes a builder when it has these stats (see `riveter`):
+
+| stat | meaning |
+|---|---|
+| `scrapMax` | scrap needed to build a sentry. Scrap is the damage the tower itself deals. |
+| `maxUnits` | how many of its sentries can be alive at once |
+| `buildRange` / `deadzone` | yellow ring where sentries are placed / red ring where the tower can't shoot or build |
+| `unit` | `{ damage, cooldown, range, health, lifespan, hidden, shield, rocket: { damage, count, cooldown, radius } }` |
+
+- Sentries lose health over their lifespan. Slam attacks also damage them; shielded sentries take half damage and can't be stunned.
+- `sellRate` on a tower sets its sell price. For example, `1/3` refunds a third of what you spent; the default is `0.7`.

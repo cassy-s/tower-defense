@@ -17,10 +17,7 @@ export const TOWERS = {
     cost: 200,
     footprint: 1.5,
     look: {
-      skin: '#e8b98f', shirt: '#3f6b2e', pants: '#26282b', shoes: '#151618',
-      face: 'smirk', hat: 'cap', hatColor: '#3d5a2c',
-      vest: '#2a2d2a', belt: '#1e1f1e', pouches: true, kneepads: true,
-      weapon: 'rifle',
+      model: 'soldier', face: 'scowl', hat: 'cap', weapon: 'rifle',
     },
     stats: {
       attack: 'hitscan', damage: 2, cooldown: 0.6, range: 11,
@@ -67,28 +64,37 @@ export const TOWERS = {
   riveter: {
     name: 'Riveter',
     role: 'Damage',
-    description: 'Fires spinning drill bolts that punch straight through lines of zombies.',
-    cost: 350,
+    description: 'Engineer with a rebar launcher. Every hit fills her scrap meter; when it is full she stops to build a sentry turret near the road. Sentries slowly wear out.',
+    cost: 600,
+    sellRate: 1 / 3,
     footprint: 1.5,
-    look: {
-      skin: '#c97a45', shirt: '#7a3f3a', pants: '#8a4a44', shoes: '#1d1d22',
-      face: 'smile', hair: 'ponytail', hairColor: '#8e4fc9',
-      sleeves: '#f2f2f2', belt: '#4a2e22', buckles: '#e0b33a', legStraps: true,
-      weapon: 'drill',
-    },
+    limit: 6,
+    look: { model: 'engineer', weapon: 'drill', face: 'confident' },
     stats: {
-      attack: 'pierce', damage: 3, cooldown: 1.0, range: 13, pierce: 4, projectileSpeed: 38,
+      attack: 'pierce', damage: 4, cooldown: 1.4, range: 13, pierce: 1, projectileSpeed: 48,
+      detectFlying: true, deadzone: 1.5, buildRange: 4, maxUnits: 1, scrapMax: 20,
+      unit: { damage: 2, cooldown: 1, range: 18, health: 200, lifespan: 20 },
     },
     upgrades: [
-      { name: 'Tempered Bits', cost: 175, desc: '+1 damage, bolts pierce 2 more zombies.', add: { damage: 1, pierce: 2 } },
-      { name: 'Twin Feed', cost: 475, desc: 'Fires much faster.', set: { cooldown: 0.65 } },
-      { name: 'Shredder Drill', cost: 1500, desc: '+4 damage, +4 pierce, drills through 60% armor.',
-        add: { damage: 4, pierce: 4 }, set: { armorPierce: 0.6 }, look: { weapon: 'drill_big', goggles: true } },
-      { name: 'Tunnel Borer', cost: 4600, desc: 'Giant bolts: +10 damage, pierce 25, sees Shades.',
-        add: { damage: 10, range: 2 }, set: { pierce: 25, cooldown: 0.55, detectHidden: true, projectileSize: 2 } },
+      { name: 'Reinforced Rebar', cost: 325, desc: '+2 damage, fires faster, +3 range.',
+        add: { damage: 2, range: 3 }, set: { cooldown: 1.2 } },
+      { name: 'Makeshift Radar', cost: 900, desc: '+4 damage, +2 range, sees hidden. Sentries become rapid-fire and see hidden too.',
+        add: { damage: 4, range: 2 }, set: { detectHidden: true, scrapMax: 32,
+          unit: { damage: 1, cooldown: 0.2, range: 20, health: 400, lifespan: 30, hidden: true } } },
+      { name: 'Auto Converter', cost: 2077, desc: '+10 damage, fires faster, +1 sentry.',
+        add: { damage: 10, maxUnits: 1 }, set: { cooldown: 1 } },
+      { name: 'Heavy Construction', cost: 6250, desc: '+10 damage, +3 range, faster. Heavy sentries.',
+        add: { damage: 10, range: 3, buildRange: -1 }, set: { cooldown: 0.9, scrapMax: 150,
+          unit: { damage: 3, cooldown: 0.15, range: 22, health: 750, lifespan: 45, hidden: true } }, look: { goggles: true } },
+      { name: 'Improved Blueprints', cost: 12500, desc: '+50 damage, faster, +1 sentry. Sentries get a shield (stun immune).',
+        add: { damage: 50, maxUnits: 1 }, set: { cooldown: 0.75,
+          unit: { damage: 3, cooldown: 0.15, range: 22, health: 750, lifespan: 45, hidden: true, shield: true } } },
+      { name: 'Illegal Gun Parts', cost: 32500, desc: '+10 damage, +1.5 range, faster, +1 sentry. Sentries fire twin rockets.',
+        add: { damage: 10, range: 1.5, buildRange: -1, maxUnits: 1 }, set: { cooldown: 0.6, scrapMax: 340,
+          unit: { damage: 3, cooldown: 0.125, range: 24, health: 1000, lifespan: 60, hidden: true, shield: true,
+            rocket: { damage: 60, count: 2, cooldown: 4, radius: 5 } } } },
     ],
   },
-
   // --------------------------------------------------------------------------
   scatter: {
     name: 'Scattergunner',
@@ -199,9 +205,7 @@ export const TOWERS = {
     cost: 1600,
     footprint: 1.9,
     look: {
-      skin: '#7a4b2e', shirt: '#4a4f3a', pants: '#2c2c2a', shoes: '#151515',
-      face: 'angry', hat: 'helmet', hatColor: '#3f4532', vest: '#2a2b27', belt: '#202020', bandolier: true,
-      weapon: 'minigun', scale: 1.15,
+      model: 'minigunner', face: 'cocky', weapon: 'minigun', scale: 1.12,
     },
     stats: {
       attack: 'spinup', damage: 2, cooldown: 0.09, range: 14, spinUp: 1.6,
@@ -278,4 +282,6 @@ export const STAT_DEFAULTS = {
   spinUp: 0, burnDamage: 0, burnDuration: 0, slow: 0, slowDuration: 0, armorPierce: 0, bossMult: 1,
   detectHidden: false, detectFlying: false, stunImmune: false, income: 0, aura: null, ability: null,
   priority: 'first',
+  // builder towers (sentries) - see src/game/sentry.js
+  scrapMax: 0, maxUnits: 0, buildRange: 0, deadzone: 0, unit: null,
 };
