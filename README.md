@@ -3,7 +3,11 @@
 A 3D top-down tower defense in the browser. Blocky toy-soldier towers hold the road against
 waves of zombies, from Shamblers to the Dread Sovereign. Built with Three.js; no build step.
 
-## Run it
+## ▶ [PLAY IN YOUR BROWSER](https://cassy-s.github.io/tower-defense/)
+
+No install needed — just click the link above.
+
+## Run it locally (only for developing)
 
 ```
 npm start
