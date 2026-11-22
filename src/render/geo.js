@@ -191,9 +191,9 @@ export function faceTexture(style, opts = {}) {
       break;
     case 'cocky': // slanted brows, wide crooked smile (Minigunner)
       eye(46, 58, 9, 12); eye(82, 58, 9, 12);
-      line([32, 42, 56, 51], 7); line([96, 42, 72, 51], 7);
-      g.fillStyle = ink; g.beginPath(); g.moveTo(42, 78); g.quadraticCurveTo(62, 104, 90, 74); g.closePath(); g.fill();
-      g.fillStyle = '#f4f4f0'; g.fillRect(48, 79, 36, 7);
+      line([34, 49, 56, 51], 7); line([94, 44, 72, 48], 7);
+      g.fillStyle = ink; g.beginPath(); g.moveTo(36, 74); g.quadraticCurveTo(60, 108, 96, 68); g.closePath(); g.fill();
+      g.fillStyle = '#f4f4f0'; g.fillRect(42, 75, 50, 11);
       break;
     case 'determined':
       eye(46, 58, 9, 12); eye(82, 58, 9, 12);

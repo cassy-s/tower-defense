@@ -149,13 +149,13 @@ class Model:
 # knee pads, M16)
 # =========================================================================
 def soldier(m):
-    skin, green, cap = '#d6a47e', '#3a6033', '#40593c'
+    skin, green, cap = '#d6a47e', '#33502d', '#3a4d36'
     black, vest, gray = '#1c1d1f', '#2a2c2e', '#4a4d51'
     m.head(skin)
     # Patrol cap: flat top, stiff band, short brim.
-    m.box('hat', 1.3, 0.62, 1.3, cap, 0, 1.2, -0.03, r=0.1, seg=2)
-    m.box('hat', 1.36, 0.16, 1.36, '#2f4429', 0, 0.95, -0.03, r=0.04)
-    m.box('hat', 1.15, 0.1, 0.62, '#2b3f26', 0, 0.9, 0.95, r=0.03, rx=-0.1)
+    m.box('hat', 1.34, 0.7, 1.34, cap, 0, 1.24, -0.03, r=0.1, seg=2, rx=-0.08)
+    m.box('hat', 1.3, 0.14, 1.3, '#2f4429', 0, 0.95, -0.03, r=0.04)
+    m.box('hat', 1.1, 0.09, 0.5, '#2b3f26', 0, 0.9, 0.88, r=0.03, rx=0.15)
 
     m.torso(green)
     # Plate carrier: dark panel front and back, straps over the green shoulders.
@@ -175,11 +175,11 @@ def soldier(m):
 
     m.arms(green, skin, sleeve_len=0.95)
     for part in ('armL', 'armR'):
-        m.box(part, 1.03, 0.14, 1.03, '#365a2d', 0, -0.68, 0, r=0.03)  # rolled sleeve cuff
+        m.box(part, 1.03, 0.14, 1.03, '#2e4627', 0, -0.68, 0, r=0.03)  # rolled sleeve cuff
 
     m.legs(black, '#121214', boot_h=0.5)
     for part, side in (('legL', -1), ('legR', 1)):
-        m.box(part, 0.82, 0.62, 0.2, '#4d5156', 0, -1.05, 0.55, r=0.09)   # knee pad
+        m.box(part, 0.7, 0.55, 0.22, '#3e4246', 0, -1.05, 0.56, r=0.15, seg=2)   # knee pad
         m.box(part, 0.88, 0.12, 0.08, '#2a2c2f', 0, -0.88, 0.62, r=0.02)  # strap
         m.box(part, 0.2, 0.62, 0.62, '#26282b', side * 0.56, -0.45, 0, r=0.05)  # cargo pocket
 
@@ -192,14 +192,14 @@ def soldier(m):
     for z in (0.02, 0.58):
         m.box(w, 0.08, 0.2, 0.08, '#202124', 0, 0.36, z, r=0.01)
     m.box(w, 0.2, 0.5, 0.24, '#1a1b1d', 0, -0.22, -0.02, rx=0.38, r=0.04)  # pistol grip
-    m.box(w, 0.18, 0.62, 0.3, '#9a9da2', 0, -0.3, 0.6, rx=-0.22, r=0.03)   # magazine
+    m.box(w, 0.2, 0.8, 0.32, '#9a9da2', 0, -0.42, 0.6, rx=-0.22, r=0.03)   # magazine
     m.cyl(w, 0.16, 0.16, 1.25, '#26272a', 0, 0.12, 1.5, rx=R90, seg=10)   # handguard
     for z in (0.95, 2.05):
         m.cyl(w, 0.18, 0.18, 0.06, '#151617', 0, 0.12, z, rx=R90, seg=10, bevel=0)
     m.cyl(w, 0.05, 0.05, 1.25, '#2c2d30', 0, 0.12, 2.5, rx=R90, seg=8)    # barrel
     m.box(w, 0.06, 0.32, 0.08, '#202124', 0, 0.34, 2.05, r=0.01)         # front sight
     m.cyl(w, 0.07, 0.07, 0.18, '#151617', 0, 0.12, 3.1, rx=R90, seg=8)    # flash hider
-    m.meta.update(weapon='rifle', hat='cap', muzzle=[0, 0.12, 3.2], face='scowl', skin=skin)
+    m.meta.update(weapon='rifle', hat='cap', muzzle=[0, 0.12, 3.2], face='scowl', skin=skin, weaponScale=1.2)
 
 
 # =========================================================================
@@ -208,28 +208,30 @@ def soldier(m):
 # boots, rebar launcher)
 # =========================================================================
 def engineer(m):
-    skin, hair, hair2, hair3 = '#d98a3a', '#8e4fcf', '#9a5ad6', '#6c3aa6'
+    skin, hair, hair2, hair3 = '#d98a3a', '#8848bf', '#b07ee0', '#6a3a9e'
     top, pants, strap, gold = '#7a2f30', '#9c4a4a', '#5a3a28', '#d8a838'
     m.head(skin)
     # Hair: cap of hair, side locks, back, and a big ponytail sweeping up/back.
-    m.box('head', 1.32, 0.46, 1.36, hair, 0, 1.12, -0.05, r=0.2, seg=3)
-    m.box('head', 1.3, 1.05, 0.36, hair, 0, 0.68, -0.52, r=0.14, seg=2)
+    m.box('head', 1.34, 0.6, 1.38, hair, 0, 1.2, -0.05, r=0.22, seg=3)
+    m.box('head', 1.5, 1.2, 0.4, hair, 0, 0.75, -0.55, r=0.16, seg=2)
     for s in (-1, 1):
-        m.box('head', 0.24, 1.35, 0.6, hair, s * 0.66, 0.45, 0.1, r=0.08)          # long face-framing locks
+        m.box('head', 0.16, 1.45, 0.4, hair, s * 0.66, 0.35, 0.25, r=0.06)          # long face-framing locks
         m.box('head', 0.55, 0.3, 0.2, hair, s * 0.3, 1.1, 0.6, r=0.08, rz=s * 0.35)  # centre part
-    tail = [(0, 1.42, -0.35, 0.29), (0, 1.9, -0.55, 0.3), (0, 2.3, -0.8, 0.29), (0, 2.25, -1.18, 0.27),
-            (0, 1.95, -1.45, 0.25), (0, 1.55, -1.6, 0.22), (0, 1.15, -1.62, 0.19), (0, 0.78, -1.55, 0.16)]
+    m.box('head', 1.55, 1.5, 0.45, hair, 0, 0.1, -0.5, r=0.18, seg=2)  # back curtain to the shoulders
+    for s in (-1, 1):
+        m.box('head', 0.3, 1.4, 0.7, hair3, s * 0.75, 0.15, -0.15, r=0.1)
+    tail = [(0, 1.45, -0.6, 0.38), (0, 1.85, -0.95, 0.39), (0, 2.0, -1.05, 0.38), (0, 1.9, -1.35, 0.35),
+            (0, 1.6, -1.55, 0.32), (0, 1.2, -1.6, 0.29), (0, 0.8, -1.5, 0.25), (0, 0.45, -1.4, 0.21)]
     for i, (x, y, z, r) in enumerate(tail):
-        m.sphere('head', r, hair if i % 2 == 0 else hair3, x, y, z, sx=0.98, sy=1.15, sz=1.1)
-    for k, (dx, rx) in enumerate(((-0.22, 0.4), (0.18, -0.35), (0.05, 0.5), (-0.08, -0.45))):  # wispy strands
-        m.box('head', 0.12, 0.9, 0.12, hair2 if k % 2 else hair, dx, 2.15, -0.7 - k * 0.12, r=0.04, rx=rx, rz=dx)
+        m.sphere('head', r, hair if i % 2 == 0 else hair3, x, y, z, sx=1.3, sy=1.15, sz=1.3)
+    for k, (dx, rz) in enumerate(((-0.45, 0.8), (0.45, -0.8), (-0.6, 1.0), (0.6, -1.0), (-0.25, 0.7), (0.25, -0.7))):  # wild strands
+        m.box('head', 0.1, 0.8, 0.1, hair2 if k % 2 else hair, dx, 1.75, -0.7 - (k // 2) * 0.15, r=0.03, rz=rz)
     for s in (-1, 1):
         m.sphere('head', 0.2, hair2, s * 0.2, 1.75, -1.4, sx=0.7, sy=1.5, sz=0.8)
     m.box('head', 0.5, 0.2, 0.5, '#3a2a55', 0, 1.36, -0.32, r=0.06)  # hair tie
 
     m.torso(top)
     m.box('torso', 2.04, 0.75, 1.04, '#6b292a', 0, 1.62, 0, r=0.06)    # darker chest panel
-    m.box('torso', 0.26, 2.05, 0.08, '#1d1d20', -0.45, 1.05, 0.55, rz=0.62, r=0.02)  # launcher sling
     m.box('torso', 2.08, 0.32, 1.1, strap, 0, 0.17, 0, r=0.04)          # belt
     m.box('torso', 0.4, 0.34, 0.1, gold, 0, 0.17, 0.58, r=0.03)         # buckle
     m.box('torso', 0.22, 0.18, 0.12, '#5a3a28', 0, 0.17, 0.6, r=0.02)
@@ -245,8 +247,8 @@ def engineer(m):
     for part in ('legL', 'legR'):
         y = -0.55
         m.box(part, 1.05, 0.2, 1.05, strap, 0, y, 0, r=0.03)
-        m.box(part, 0.3, 0.28, 0.08, gold, 0.05, y, 0.54, r=0.03)
-        m.box(part, 0.14, 0.12, 0.1, pants, 0.05, y, 0.57, r=0.02)
+        m.box(part, 0.36, 0.32, 0.08, gold, 0.05, y, 0.54, r=0.03)
+        m.box(part, 0.2, 0.16, 0.1, pants, 0.05, y, 0.57, r=0.02)
 
     # Rebar launcher (origin = rear grip, +z = forward)
     w = 'weapon'
@@ -271,7 +273,7 @@ def engineer(m):
 # harness straps, minigun at the hip)
 # =========================================================================
 def minigunner(m):
-    skin, red, red2, black = '#f2b233', '#b8292c', '#701c21', '#19191b'
+    skin, red, red2, black = '#f2b233', '#9a2428', '#701c21', '#19191b'
     m.head(skin)
     m.torso(red)
     for x in (-0.55, 0.55):  # harness
@@ -284,6 +286,7 @@ def minigunner(m):
 
     m.arms(red, skin, sleeve_len=0.95)
     for part in ('armL', 'armR'):
+        m.box(part, 1.1, 1.0, 1.1, skin, 0, -1.3, 0, r=0.1)  # chunky hand blocks
         m.box(part, 1.04, 0.18, 1.04, '#7a1a1e', 0, -0.62, 0, r=0.03)
         m.box(part, 1.18, 0.75, 1.18, '#c03232', 0, -0.15, 0, r=0.1)  # big shoulder blocks
 
@@ -295,8 +298,8 @@ def minigunner(m):
 
     # Minigun (origin = rear grip, +z = forward). Barrels go in 'spin'.
     w = 'weapon'
-    m.box(w, 0.75, 0.72, 1.25, '#1f2023', 0, 0.12, 0.45, r=0.1)          # housing
-    m.cyl(w, 0.38, 0.38, 0.55, '#2a2c30', 0, 0.12, -0.35, rx=R90, seg=14)  # motor
+    m.box(w, 0.75, 0.72, 1.25, '#33373c', 0, 0.12, 0.45, r=0.1)          # housing
+    m.cyl(w, 0.38, 0.38, 0.55, '#3a3f45', 0, 0.12, -0.35, rx=R90, seg=14)  # motor
     m.cyl(w, 0.3, 0.3, 0.1, '#141517', 0, 0.12, -0.66, rx=R90, seg=14, bevel=0)
     m.box(w, 0.1, 0.42, 0.1, '#2a2b2e', 0, 0.62, 0.05, r=0.02)           # carry handle
     m.box(w, 0.1, 0.42, 0.1, '#2a2b2e', 0, 0.62, 0.85, r=0.02)
@@ -310,7 +313,7 @@ def minigunner(m):
         a = i / 6 * math.tau
         m.cyl(s, 0.065, 0.065, 2.9, '#3a3f45', math.cos(a) * 0.19, 0.12 + math.sin(a) * 0.19, 2.55, rx=R90, seg=8)
     for z in (1.5, 2.6, 3.9):
-        m.cyl(s, 0.26, 0.26, 0.1 if z != 3.9 else 0.14, '#1a1b1e', 0, 0.12, z, rx=R90, seg=14, bevel=0.01)
+        m.cyl(s, 0.26, 0.26, 0.1 if z != 3.9 else 0.14, '#2a2d31', 0, 0.12, z, rx=R90, seg=14, bevel=0.01)
     m.cyl(s, 0.08, 0.08, 2.9, '#151517', 0, 0.12, 2.55, rx=R90, seg=8)
     m.meta.update(weapon='minigun', hat='none', muzzle=[0, 0.12, 4.0], face='cocky', skin=skin, spinAxis=[0, 0.12])
 

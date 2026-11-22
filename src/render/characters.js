@@ -268,16 +268,16 @@ function applyPose(rig) {
 // (the view blends between them).
 export const MODEL_POSES = {
   soldier: {
-    idle: { armR: [-1.15, -0.3, 0], armL: [-1.25, 0.6, 0], mount: [-0.1, 1.25, 1.0], mountRot: [0.35, 0.55, 0.25] },
+    idle: { armR: [-1.25, -0.6, 0], armL: [-1.15, 0.3, 0], mount: [-0.3, 1.15, 1.15], mountRot: [0.4, 0.4, 0] },
     aim:  { armR: [-1.38, -0.42, 0], armL: [-1.45, 0.72, 0], mount: [0.42, 1.32, 1.05], mountRot: [0, 0, 0] },
   },
   engineer: {
-    idle: { armR: [-1.6, -0.3, 0], armL: [-1.6, 0.55, 0], mount: [0.3, 1.7, 1.1], mountRot: [0.06, -0.15, 0] },
-    aim:  { armR: [-1.6, -0.3, 0], armL: [-1.6, 0.55, 0], mount: [0.3, 1.75, 1.1], mountRot: [0, 0, 0] },
+    idle: { armL: [-1.6, 0.6, 0], armR: [-1.6, -0.25, 0], mount: [-0.4, 1.85, 1.2], mountRot: [0, 0.4, 0] },
+    aim:  { armL: [-1.6, 0.6, 0], armR: [-1.6, -0.25, 0], mount: [-0.3, 1.8, 1.15], mountRot: [0, 0, 0] },
   },
   minigunner: {
-    idle: { armR: [-0.6, 0, 0.3], armL: [-1.35, 0.7, 0], mount: [0.25, 0.6, 1.3], mountRot: [0.05, -0.15, 0] },
-    aim:  { armR: [-0.95, -0.25, 0], armL: [-1.35, 0.7, 0], mount: [0.25, 0.7, 1.3], mountRot: [0, 0, 0] },
+    idle: { armL: [-0.45, 0, -0.3], armR: [-1.15, -0.7, 0], mount: [-0.25, 0.35, 1.3], mountRot: [0.05, 0.15, 0] },
+    aim:  { armL: [-0.95, 0.25, 0], armR: [-1.35, -0.7, 0], mount: [-0.25, 0.7, 1.3], mountRot: [0, 0, 0] },
   },
 };
 
@@ -315,6 +315,7 @@ function buildModelTower(L, id, ghost) {
       rig.spinners = [holder];
     }
     const muzzle = new THREE.Object3D(); muzzle.position.set(...model.muzzle); g.add(muzzle);
+    g.scale.setScalar(model.weaponScale || 1);
     rig.mount.add(g);
     rig.muzzle = muzzle;
     rig.weaponGroup = g;
