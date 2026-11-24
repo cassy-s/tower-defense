@@ -264,7 +264,7 @@ function applyPose(rig) {
 // ------------------------------------------------------- blender towers ----
 // Poses for the Blender-made characters (arm rotations are YXZ euler, mount
 // is where the weapon's grip sits in hips space).
-// `idle` is the relaxed pose from the reference art; `aim` is used while firing
+// `idle` is the relaxed standing pose; `aim` is used while firing
 // (the view blends between them).
 export const MODEL_POSES = {
   soldier: {

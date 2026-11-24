@@ -57,7 +57,7 @@ quick headless battle with each tower to make sure nothing crashes.
 |---|---|---|
 | `attack` | `hitscan` | see attack types below |
 | `damage` | 1 | per hit / per pellet |
-| `cooldown` | 1 | **seconds between shots** (fire rate = 1 / cooldown). If you're given "firerate 0.6" in TDS-style seconds, that is `cooldown: 0.6` |
+| `cooldown` | 1 | **seconds between shots** (fire rate = 1 / cooldown). |
 | `range` | 10 | studs (the map is 64 × 40) |
 | `burst`, `burstDelay` | 1, 0.1 | shots per trigger pull, seconds between them |
 | `pellets`, `spreadAngle` | 1, 30 | for `spread` |
@@ -133,8 +133,7 @@ Their look in `towers.js` is just `{ model: 'soldier', weapon: 'rifle', ... }`.
   - `src/render/models/towers.gen.js`, which the game loads.
   - `tools/blender/towers.blend`, which you can open in Blender.
   - A preview render in `tools/blender/renders/`.
-- The holding poses live in `MODEL_POSES` in `src/render/characters.js`. Each character has an `idle` pose (the reference-art stance) and an `aim` pose (used while firing).
-- To compare the models against the references, open `/tools/refcheck.html?refs=1` with reference PNGs in `tools/refs/`. That folder is git-ignored.
+- The holding poses live in `MODEL_POSES` in `src/render/characters.js`. Each character has an `idle` pose (the relaxed stance) and an `aim` pose (used while firing).
 - Upgrade extras still layer on top of the model, as long as they differ from what the model already has: `hat`, `sunglasses`, `goggles`, `bandolier`, `medals`, and a different `weapon`.
 
 ## Builder towers (sentries)

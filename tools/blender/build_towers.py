@@ -145,7 +145,7 @@ class Model:
 
 
 # =========================================================================
-# SOLDIER  (reference 1: olive cap, green shirt + black vest, black pants with
+# SOLDIER  (olive cap, green shirt + black vest, black pants with
 # knee pads, M16)
 # =========================================================================
 def soldier(m):
@@ -203,7 +203,7 @@ def soldier(m):
 
 
 # =========================================================================
-# ENGINEER  (reference 2: purple high ponytail, white shoulders, orange skin,
+# ENGINEER  (purple high ponytail, white shoulders, orange skin,
 # maroon top, dusty-red trousers with brown straps + gold buckles, black
 # boots, rebar launcher)
 # =========================================================================
@@ -269,7 +269,7 @@ def engineer(m):
 
 
 # =========================================================================
-# MINIGUNNER  (reference 3: bald, bright yellow skin, red outfit with black
+# MINIGUNNER  (bald, bright yellow skin, red outfit with black
 # harness straps, minigun at the hip)
 # =========================================================================
 def minigunner(m):
@@ -366,7 +366,7 @@ def render_previews(models):
     world.color = (0.85, 0.88, 0.92)
     cam_data = bpy.data.cameras.new('cam'); cam_data.type = 'ORTHO'; cam_data.ortho_scale = 16
     cam = bpy.data.objects.new('cam', cam_data); sc.collection.objects.link(cam); sc.camera = cam
-    # front three-quarter view, like the reference art
+    # front three-quarter view
     target = Vector((0, 0, 3))
     cam.location = Vector((7, -26, 9))
     cam.rotation_euler = (target - cam.location).to_track_quat('-Z', 'Y').to_euler()

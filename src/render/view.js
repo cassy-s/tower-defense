@@ -740,7 +740,7 @@ export class View {
     rig.body.position.z = -r * 0.1;
     rig.torso.rotation.x = -r * 0.05;
     if (rig.poseIdle) {
-      // Blend the reference-art idle pose into the firing pose.
+      // Blend the relaxed idle pose into the firing pose.
       const I = rig.poseIdle, A = rig.poseAim, k = tv.aim, mix = (a, b, i) => a[i] + (b[i] - a[i]) * k;
       rig.armR.rotation.set(mix(I.armR, A.armR, 0) - r * 0.2, mix(I.armR, A.armR, 1), mix(I.armR, A.armR, 2));
       rig.armL.rotation.set(mix(I.armL, A.armL, 0) - r * 0.15, mix(I.armL, A.armL, 1), mix(I.armL, A.armL, 2));
