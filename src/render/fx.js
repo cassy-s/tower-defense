@@ -5,7 +5,9 @@ import * as THREE from 'three';
 
 const _q = new THREE.Quaternion(), _dq = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _m = new THREE.Matrix4();
 const _e = new THREE.Euler(), _c = new THREE.Color(), _dir = new THREE.Vector3(), _z = new THREE.Vector3(0, 0, 1);
+const _tq = new THREE.Quaternion(); // reused for tracer / splat orientation (spawn copies it)
 const ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const colorCache = new Map();       // '#rrggbb' -> [r, g, b], so spawns don't re-parse colour strings
 
 class Cubes {
   constructor(scene, cap, material, shadows = false) {
@@ -20,25 +22,51 @@ class Cubes {
     this.pos = f(3); this.vel = f(3); this.size = f(3); this.quat = f(4); this.spin = f(3);
     this.life = f(1); this.max = f(1); this.grav = f(1); this.drag = f(1); this.mode = new Uint8Array(cap);
     this.next = 0; this.active = 0;
+    this.dirtyLo = Infinity; this.dirtyHi = -1; // colour slots written since the last upload
   }
+  /** Colour: `color` ('#rrggbb') or numeric r, g, b (0..1, linear like THREE.Color). */
   spawn(o) {
     const i = this.next; this.next = (this.next + 1) % this.cap;
-    this.pos.set([o.x, o.y, o.z], i * 3);
-    this.vel.set([o.vx || 0, o.vy || 0, o.vz || 0], i * 3);
+    const i3 = i * 3, i4 = i * 4;
+    const { pos, vel, size, quat, spin } = this;
+    pos[i3] = o.x; pos[i3 + 1] = o.y; pos[i3 + 2] = o.z;
+    vel[i3] = o.vx || 0; vel[i3 + 1] = o.vy || 0; vel[i3 + 2] = o.vz || 0;
     const sx = o.sx ?? o.size ?? 0.2;
-    this.size.set([sx, o.sy ?? o.size ?? sx, o.sz ?? o.size ?? sx], i * 3);
-    if (o.quat) this.quat.set([o.quat.x, o.quat.y, o.quat.z, o.quat.w], i * 4);
-    else { _e.set(Math.random() * 6, Math.random() * 6, Math.random() * 6); _q.setFromEuler(_e); this.quat.set([_q.x, _q.y, _q.z, _q.w], i * 4); }
+    size[i3] = sx; size[i3 + 1] = o.sy ?? o.size ?? sx; size[i3 + 2] = o.sz ?? o.size ?? sx;
+    const q = o.quat || _q.setFromEuler(_e.set(Math.random() * 6, Math.random() * 6, Math.random() * 6));
+    quat[i4] = q.x; quat[i4 + 1] = q.y; quat[i4 + 2] = q.z; quat[i4 + 3] = q.w;
     const sp = o.spin ?? 6;
-    this.spin.set([(Math.random() - 0.5) * sp, (Math.random() - 0.5) * sp, (Math.random() - 0.5) * sp], i * 3);
+    spin[i3] = (Math.random() - 0.5) * sp; spin[i3 + 1] = (Math.random() - 0.5) * sp; spin[i3 + 2] = (Math.random() - 0.5) * sp;
     this.life[i] = this.max[i] = o.life || 0.5;
     this.grav[i] = o.gravity ?? 0;
     this.drag[i] = o.drag ?? 0;
     this.mode[i] = o.mode || 0; // 0 shrink all, 1 shrink width only (tracers), 2 grow then shrink (smoke), 3 flat decal
-    this.mesh.setColorAt(i, _c.set(o.color || '#ffffff'));
-    this.mesh.instanceColor.needsUpdate = true;
+    const ca = this.mesh.instanceColor.array;
+    if (o.r !== undefined) { ca[i3] = o.r; ca[i3 + 1] = o.g; ca[i3 + 2] = o.b; }
+    else {
+      const key = o.color || '#ffffff';
+      let rgb = colorCache.get(key);
+      if (!rgb) { _c.set(key); rgb = [_c.r, _c.g, _c.b]; colorCache.set(key, rgb); }
+      ca[i3] = rgb[0]; ca[i3 + 1] = rgb[1]; ca[i3 + 2] = rgb[2];
+    }
+    if (i < this.dirtyLo) this.dirtyLo = i;
+    if (i > this.dirtyHi) this.dirtyHi = i;
+  }
+  /** Upload only the colour slots written this frame, not the whole buffer. */
+  flushColors() {
+    if (this.dirtyHi < 0) return;
+    const attr = this.mesh.instanceColor;
+    if (attr.addUpdateRange) { attr.clearUpdateRanges(); attr.addUpdateRange(this.dirtyLo * 3, (this.dirtyHi - this.dirtyLo + 1) * 3); }
+    attr.needsUpdate = true;
+    this.dirtyLo = Infinity; this.dirtyHi = -1;
+  }
+  reset() {
+    this.life.fill(0);
+    for (let i = 0; i < this.cap; i++) this.mesh.setMatrixAt(i, ZERO);
+    this.mesh.instanceMatrix.needsUpdate = true;
   }
   update(dt) {
+    this.flushColors();
     const { pos, vel, size, quat, spin, life, max, grav, drag, mode, mesh } = this;
     let any = false;
     for (let i = 0; i < this.cap; i++) {
@@ -90,6 +118,18 @@ export class FX {
     this.texts = [];
     this.shakeAmt = 0;
     this.quality = 1;
+    // Players who ask their OS for less motion get no screen shake.
+    const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+    this.reducedMotion = !!mq?.matches;
+    mq?.addEventListener?.('change', (e) => { this.reducedMotion = e.matches; });
+  }
+
+  /** Clear every particle, ring and floating text (new game / back to menu). */
+  reset() {
+    this.lit.reset(); this.glow.reset();
+    for (const m of this.rings) m.visible = false;
+    for (const t of this.texts) { t.alive = false; t.div.style.display = 'none'; }
+    this.shakeAmt = 0;
   }
 
   // ---------------------------------------------------------- primitives --
@@ -98,8 +138,8 @@ export class FX {
     const len = _dir.length();
     if (len < 0.01) return;
     _dir.normalize();
-    const q = new THREE.Quaternion().setFromUnitVectors(_z, _dir);
-    this.glow.spawn({ x: (from.x + to.x) / 2, y: (from.y + to.y) / 2, z: (from.z + to.z) / 2, sx: width, sy: width, sz: len, quat: q, spin: 0, life, mode: 1, color });
+    _tq.setFromUnitVectors(_z, _dir);
+    this.glow.spawn({ x: (from.x + to.x) / 2, y: (from.y + to.y) / 2, z: (from.z + to.z) / 2, sx: width, sy: width, sz: len, quat: _tq, spin: 0, life, mode: 1, color });
   }
 
   muzzle(pos, dir, color = '#ffd36a', size = 0.45) {
@@ -120,8 +160,8 @@ export class FX {
   }
 
   splat(x, z, color = '#2f4a22', size = 1.2) {
-    const q = new THREE.Quaternion().setFromEuler(_e.set(0, Math.random() * 6, 0));
-    this.lit.spawn({ x, y: 0.09, z, sx: size, sy: 0.04, sz: size * (0.6 + Math.random() * 0.5), quat: q, spin: 0, life: 6, mode: 3, color });
+    _tq.setFromEuler(_e.set(0, Math.random() * 6, 0));
+    this.lit.spawn({ x, y: 0.09, z, sx: size, sy: 0.04, sz: size * (0.6 + Math.random() * 0.5), quat: _tq, spin: 0, life: 6, mode: 3, color });
   }
 
   ring(x, z, radius, color = '#ffffff', dur = 0.5, y = 0.15) {
@@ -189,7 +229,7 @@ export class FX {
     for (let i = 0; i < 3; i++) this.glow.spawn({ x: pos.x + (Math.random() - 0.5), y: pos.y + Math.random(), z: pos.z + (Math.random() - 0.5), vy: 2, size: 0.22, life: 0.6, spin: 0, color: '#6aff8a' });
   }
 
-  shake(a) { this.shakeAmt = Math.min(0.6, this.shakeAmt + a); }
+  shake(a) { if (!this.reducedMotion) this.shakeAmt = Math.min(0.6, this.shakeAmt + a); }
 
   // ------------------------------------------------------------- text ------
   text(worldPos, str, cls = '') {

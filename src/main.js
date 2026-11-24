@@ -12,7 +12,10 @@ import { MAP_ORDER } from './config/maps.js';
 import { validateContent } from './config/schema.js';
 
 const SAVE_KEY = 'blockade.save.v2';
+const RUN_KEY = 'blockade.run.v1';   // the game in progress (autosaved between waves)
 const STEP = 1 / 60;
+const MAX_FRAME = 0.25;              // longest real frame we try to catch up on (seconds)
+const SELL_CONFIRM_MS = 1800;
 
 class App {
   constructor() {
@@ -20,7 +23,8 @@ class App {
     this.settings = this.save.settings;
     this.canvas = document.getElementById('scene');
     this.view = new View(this.canvas, document.getElementById('fx-layer'));
-    this.view.onSound = (n) => audio.play(n);
+    // Only the real game makes noise: the title screen's background battle is silent.
+    this.view.onSound = (n) => { if (this.mode === 'game') audio.play(n); };
     this.portraits = new Portraits();
     this.ui = new UI(this);
     this.speed = 1;
@@ -29,12 +33,16 @@ class App {
     this.game = null;
     this.mode = 'loading';
     this.mapThumbs = {};
+    this.frameErrors = 0;
+    this.seenErrors = new Set();
     audio.setVolume(this.settings.volume);
     audio.setMuted(this.settings.muted);
     this.ui.setMuteIcon(this.settings.muted);
     this.applyQuality();
     this.bindInput();
     window.addEventListener('resize', () => { this.view.resize(); this.updateInsets(); });
+    window.addEventListener('beforeunload', () => this.saveRun());
+    document.addEventListener('visibilitychange', () => { if (document.hidden) this.saveRun(); });
     this.last = performance.now();
     this.acc = 0;
     requestAnimationFrame((t) => this.frame(t));
@@ -48,6 +56,20 @@ class App {
     return { best: s.best || {}, settings: { volume: 0.5, muted: false, quality: 'high', ...(s.settings || {}) } };
   }
   persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(this.save)); } catch { /* ignore */ } }
+
+  /** The saved run, if there is one worth resuming. */
+  savedRun() {
+    try { const r = JSON.parse(localStorage.getItem(RUN_KEY)); return r && r.mapId ? r : null; } catch { return null; }
+  }
+  /** Autosave: only between waves, when the game can be restored exactly. */
+  saveRun() {
+    const g = this.game;
+    if (this.mode !== 'game' || !g || !g.canSave) return false;
+    try { localStorage.setItem(RUN_KEY, JSON.stringify(g.serialize())); } catch { return false; }
+    this.runDirty = false;
+    return true;
+  }
+  clearRun() { try { localStorage.removeItem(RUN_KEY); } catch { /* ignore */ } }
 
   // --------------------------------------------------------------- boot ---
   async boot() {
@@ -65,6 +87,19 @@ class App {
       if (i % 3 === 0) await tick();
     }
     this.startMenu();
+    this.warmPortraits();
+  }
+
+  /** Render the upgraded-tower portraits in idle time, so the first upgrade to each level doesn't hitch. */
+  warmPortraits() {
+    const jobs = [];
+    for (const id of TOWER_ORDER) for (let l = 1; l <= (TOWERS[id].upgrades || []).length; l++) jobs.push([id, l]);
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(() => fn({ timeRemaining: () => 8 }), 60));
+    const run = (deadline) => {
+      while (jobs.length && deadline.timeRemaining() > 4) { const [id, l] = jobs.shift(); this.portraits.tower(id, l); }
+      if (jobs.length) idle(run);
+    };
+    idle(run);
   }
 
   mapThumb(id) {
@@ -97,19 +132,24 @@ class App {
     this.view.fitDistance = null;
     this.ui.game = null;
     this.ui.showScreen('title');
+    this.ui.showContinue(this.savedRun());
   }
 
   // ------------------------------------------------------------- game -----
-  startGame(mapId, difficulty) {
+  /** Start a new game, or resume `saved` (a serialized run). */
+  startGame(mapId, difficulty, saved = null) {
     audio.init();
+    const seed = Date.now() & 0xffff;
+    const g = saved ? Game.fromSave(saved, { seed }) : new Game({ mapId, difficulty, seed });
+    if (!g) { this.clearRun(); this.ui.showContinue(null); return; }
     this.mode = 'game';
     this.speed = 1;
     this.paused = false;
     this.cancelPlacing();
     this.selectedTower = null;
-    this.lastStart = { mapId, difficulty };
-    const g = new Game({ mapId, difficulty, seed: Date.now() & 0xffff });
+    this.lastStart = { mapId: g.mapId, difficulty: g.difficultyId };
     this.game = g;
+    this.acc = 0;
     this.view.setGame(g);
     this.view.zoom = 1; this.view.pan.set(0, 0);
     this.ui.showScreen('game');
@@ -117,8 +157,15 @@ class App {
     this.updateInsets();
     this.bindGameSounds(g);
     g.on('gameOver', ({ won }) => this.onGameOver(won));
-    this.ui.hint('Pick a tower on the right, then click open ground to deploy it. Press <b>START</b> when ready.');
-    this.firstPlace = true;
+    const dirty = () => { this.runDirty = true; };
+    for (const ev of ['waveEnd', 'towerPlaced', 'towerUpgraded', 'towerSold']) g.on(ev, dirty);
+    if (saved) {
+      this.firstPlace = false;
+      this.ui.hint(`Resumed on wave <b>${g.wave}</b>. Press <b>START</b> (or <kbd>Space</kbd>) to send the next wave.`);
+    } else {
+      this.ui.hint('Pick a tower on the right, then click open ground to deploy it. Press <b>START</b> when ready.');
+      this.firstPlace = true;
+    }
   }
 
   bindGameSounds(g) {
@@ -138,6 +185,7 @@ class App {
     if (won) b[g.difficultyId] = 'win';
     else if (prev !== 'win' && (!prev || g.wave > prev)) b[g.difficultyId] = g.wave;
     this.persist();
+    this.clearRun();
     this.cancelPlacing();
     this.select(null);
     clearTimeout(this.endTimer);
@@ -151,6 +199,7 @@ class App {
   }
 
   quitToMenu() {
+    this.saveRun();
     document.getElementById('modal-end').classList.add('hidden');
     document.getElementById('modal-pause').classList.add('hidden');
     this.ui.closeInspector();
@@ -201,7 +250,7 @@ class App {
     this.select(null);
     this.placing = type;
     this.canvas.classList.add('placing');
-    if (this.mouse) this.updateGhost(this.mouse.x, this.mouse.y);
+    if (this.mouse && this.mouseOnCanvas) this.updateGhost(this.mouse.x, this.mouse.y);
   }
   cancelPlacing() {
     this.placing = null;
@@ -216,8 +265,10 @@ class App {
 
   select(t) {
     this.selectedTower = t;
+    this.sellArmed = null;
     this.view.select(t);
-    if (t) this.ui.openInspector(t); else this.ui.closeInspector();
+    if (t) this.ui.openInspector(t, this.view.screenX(t) < (window.innerWidth - this.view.insetRight) / 2 ? 'right' : 'left');
+    else this.ui.closeInspector();
   }
   upgradeSelected() {
     const t = this.selectedTower;
@@ -230,12 +281,23 @@ class App {
     this.game.sellTower(t);
     this.select(null);
   }
+  /** Delete key: the first press asks, a second press within a moment sells. */
+  sellHotkey() {
+    const t = this.selectedTower;
+    if (!t) return;
+    if (this.sellArmed === t && performance.now() < this.sellArmedUntil) { this.sellSelected(); this.ui.hint(null); return; }
+    this.sellArmed = t;
+    this.sellArmedUntil = performance.now() + SELL_CONFIRM_MS;
+    this.sound('click');
+    this.flashHint(`Press <kbd>Del</kbd> again to sell ${t.def.name} for <b>$${t.sellValue.toLocaleString('en-US')}</b>${t.refundable ? ' (full refund)' : ''}`);
+  }
   useAbility() { const t = this.selectedTower; if (t && !t.useAbility()) this.sound('error'); }
   cycleTargeting(dir) {
     const t = this.selectedTower;
-    if (!t) return;
+    if (!t || t.stats.attack === 'none') return;
     const i = TARGETING.indexOf(t.targeting);
     t.targeting = TARGETING[(i + dir + TARGETING.length) % TARGETING.length];
+    this.runDirty = true;
     this.sound('click');
   }
 
@@ -243,8 +305,25 @@ class App {
     const p = this.view.pick(cx, cy);
     if (!p) return;
     const res = this.game.canPlace(this.placing, p.x, p.z);
-    this.view.showGhost(this.placing, p.x, p.z, res.ok);
+    const buff = this.game.previewBuff(this.placing, p.x, p.z);
+    this.view.showGhost(this.placing, p.x, p.z, res.ok, buff.rangeMult);
     this.ghostReason = res.ok ? null : res.reason;
+  }
+
+  /** Escape: close whatever is on top, one thing per press. */
+  escapePressed() {
+    const pauseOpen = !document.getElementById('modal-pause').classList.contains('hidden');
+    if (this.mode !== 'game') {
+      if (pauseOpen) { this.ui.closeSettings(); return; }
+      const screen = document.body.dataset.screen;
+      if (screen === 'maps' || screen === 'codex') { this.sound('click'); this.ui.showScreen('title'); }
+      return;
+    }
+    if (pauseOpen) { this.setPaused(false); return; }
+    if (!document.getElementById('modal-end').classList.contains('hidden')) return;
+    if (this.placing) this.cancelPlacing();
+    else if (this.selectedTower) this.select(null);
+    else this.setPaused(true);
   }
 
   bindInput() {
@@ -252,6 +331,7 @@ class App {
     c.addEventListener('contextmenu', (e) => e.preventDefault());
     c.addEventListener('pointermove', (e) => {
       this.mouse = { x: e.clientX, y: e.clientY };
+      this.mouseOnCanvas = true;
       if (this.drag) {
         const k = 0.09 * this.view.zoom;
         this.view.pan.x -= (e.clientX - this.drag.x) * k;
@@ -265,9 +345,16 @@ class App {
       const t = p && this.view.towerAt(p.x, p.z);
       c.classList.toggle('hovering', !!t);
     });
+    // The ghost only belongs on the map: hide it while the cursor is over the shop or a panel.
+    c.addEventListener('pointerleave', () => {
+      this.mouseOnCanvas = false;
+      if (this.placing) this.view.hideGhost();
+    });
     c.addEventListener('pointerdown', (e) => {
       if (this.mode !== 'game') return;
       audio.init();
+      // Clicking the map takes focus away from any button or checkbox, so hotkeys go to the game.
+      if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
       if (e.button === 2 || e.button === 1) {
         if (this.placing && e.button === 2) { this.cancelPlacing(); return; }
         this.drag = { x: e.clientX, y: e.clientY, moved: false };
@@ -283,6 +370,7 @@ class App {
         this.game.placeTower(type, p.x, p.z);
         if (this.firstPlace) { this.firstPlace = false; if (this.game.wave === 0) this.ui.hint('Nice! Press <b>START</b> (or <kbd>Space</kbd>) to send the first wave.'); }
         if (!e.shiftKey || this.game.cash < TOWERS[type].cost) this.cancelPlacing();
+        else this.updateGhost(e.clientX, e.clientY);
         return;
       }
       const t = this.view.towerAt(p.x, p.z);
@@ -293,25 +381,36 @@ class App {
     c.addEventListener('wheel', (e) => { if (this.mode === 'game') { e.preventDefault(); this.view.zoomBy(e.deltaY, e.clientX, e.clientY); } }, { passive: false });
 
     window.addEventListener('keydown', (e) => {
-      if (this.mode !== 'game' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      // Only text fields keep their keys. Checkboxes, sliders and dropdowns
+      // must not swallow the game's hotkeys (or Escape).
+      const el = e.target;
+      const typing = (el.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit'].includes(el.type)) || el.tagName === 'TEXTAREA' || el.isContentEditable;
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === 'escape') {
-        if (this.placing) this.cancelPlacing();
-        else if (this.selectedTower) this.select(null);
-        else this.setPaused(!this.paused);
+      if (k === 'escape') { e.preventDefault(); this.escapePressed(); return; }
+
+      if (this.mode === 'menu') {
+        // Enter deploys from the map screen (unless a button has focus: then Enter presses that button).
+        const onButton = el.tagName === 'BUTTON';
+        if (k === 'enter' && !onButton && document.body.dataset.screen === 'maps') { e.preventDefault(); this.ui.deploy(); }
         return;
       }
+      if (this.mode !== 'game') return;
+      if (!document.getElementById('modal-end').classList.contains('hidden')) return;
       if (this.paused) return;
+      // Inside the game, Space and the hotkeys belong to the game, not to whatever
+      // control was clicked last (Space would otherwise also toggle AUTO or press a button).
+      if (k === ' ' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.type === 'range')) el.blur?.();
       if (/^[0-9]$/.test(k)) {
         const idx = k === '0' ? 9 : +k - 1;
         if (TOWER_ORDER[idx]) this.beginPlacing(TOWER_ORDER[idx]);
-      } else if (k === ' ') { e.preventDefault(); this.goPressed(); }
+      } else if (k === ' ') { e.preventDefault(); if (!e.repeat) this.goPressed(); }
       else if (k === 'f') this.cycleSpeed();
       else if (k === 'p') this.setPaused(true);
       else if (k === 'm') this.toggleMute();
       else if (k === 'u' || k === 'e') this.upgradeSelected();
-      else if (k === 't' || k === 'tab') { e.preventDefault(); this.cycleTargeting(1); }
-      else if (k === 'delete' || k === 'backspace') this.sellSelected();
+      else if (k === 't') this.cycleTargeting(e.shiftKey ? -1 : 1);
+      else if (k === 'delete') { if (!e.repeat) this.sellHotkey(); }
       else if (k === 'q') this.useAbility();
     });
   }
@@ -319,23 +418,38 @@ class App {
   // ------------------------------------------------------------- loop -----
   frame(now) {
     requestAnimationFrame((t) => this.frame(t));
-    try { this.step(now); } catch (err) { console.error('[Blockade] frame error:', err); }
+    try {
+      this.step(now);
+      this.frameErrors = 0;
+    } catch (err) {
+      // Log each distinct error once (not 60 times a second), and tell the
+      // player if the game is stuck instead of leaving a frozen screen.
+      const key = String(err?.stack || err);
+      if (!this.seenErrors.has(key)) { this.seenErrors.add(key); console.error('[Blockade] frame error:', err); }
+      if (++this.frameErrors === 30) this.ui.showError(err);
+    }
   }
 
   step(now) {
-    const realDt = Math.min(0.1, (now - this.last) / 1000);
+    const realDt = Math.min(MAX_FRAME, Math.max(0, (now - this.last) / 1000));
     this.last = now;
     if (this.game && !this.paused && this.mode !== 'loading') {
       const speed = this.mode === 'menu' ? 1 : this.speed;
       this.acc += realDt * speed;
+      // Enough steps to keep 3x speed honest even at ~4 fps, but never an
+      // unbounded backlog (that would make a slow PC slower still).
+      const maxSteps = Math.ceil((MAX_FRAME * 3) / STEP);
       let steps = 0;
-      while (this.acc >= STEP && steps < 12) {
+      while (this.acc >= STEP && steps < maxSteps) {
         this.game.update(STEP);
         this.acc -= STEP;
         steps++;
       }
-      if (steps >= 12) this.acc = 0;
-      this.view.update(realDt * speed);
+      if (this.acc >= STEP) this.acc = STEP * 0.999;
+      if (this.runDirty) this.saveRun();
+      // Draw moving things between the last two simulation steps.
+      const alpha = this.game.state === 'playing' ? Math.min(1, this.acc / STEP) : 1;
+      this.view.update(realDt * speed, alpha);
       if (this.mode === 'game') this.ui.update();
     }
     if (this.mode !== 'loading') this.view.render(this.paused ? 0 : realDt);

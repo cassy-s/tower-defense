@@ -7,10 +7,14 @@ After editing, run:
 
 ```
 npm run check
+npm test
+npm run stamp
 ```
 
-It validates every field (typos in stat names, unknown weapons/hats, bad costs) and runs a
-quick headless battle with each tower to make sure nothing crashes.
+`check` validates every field (typos in stat names, unknown weapons/hats, bad costs) and runs a
+quick headless battle with each tower to make sure nothing crashes. `test` runs the simulation
+tests. `stamp` refreshes the cache-busting versions in `index.html`; CI fails if you forget it.
+Without Node, open `http://localhost:8080/tests/` for the tests and run `tools\stamp.ps1` for the stamp.
 
 ---
 
@@ -24,6 +28,7 @@ quick headless battle with each tower to make sure nothing crashes.
     cost: 600,                       // placement price
     footprint: 1.5,                  // placement radius in studs (1.5 normal, 1.9 big)
     limit: 6,                        // optional: max per game
+    shot: 'heavy',                   // optional: big tracer + sniper sound for slow, hard-hitting guns (default 'normal')
     look: {                          // how the 3D figure is built
       skin: '#e8b98f', shirt: '#e8e6df', pants: '#2c3440', shoes: '#16181c',
       face: 'smile', hat: 'helmet', hatColor: '#d8d8d0',
@@ -94,7 +99,7 @@ Figures are built from blocks: head, 2×2×1 torso, block arms and legs. Colours
 | field | values |
 |---|---|
 | `skin`, `shirt`, `pants`, `shoes`, `sleeves`, `gloves` | colours (sleeves default to shirt) |
-| `face` | `smirk`, `angry`, `smile`, `grin`, `determined`, `none` · `facePaint: true` adds camo stripes |
+| `face` | `smirk`, `angry`, `smile`, `grin`, `determined`, `scowl`, `confident`, `cocky`, `none` · `facePaint: true` adds camo stripes |
 | `hat` + `hatColor` | `cap`, `helmet`, `beret`, `boonie`, `officer`, `welder`, `bandana`, `none` |
 | `hair` + `hairColor` | `short`, `ponytail`, `long`, `none` |
 | torso extras | `vest` (colour), `pouches`, `belt` (colour), `buckles` (colour), `bandolier`, `backpack` (colour), `tank` (colour, back tanks), `medals`, `radio`, `cape` (colour), `ghillie` |
@@ -134,7 +139,8 @@ Their look in `towers.js` is just `{ model: 'soldier', weapon: 'rifle', ... }`.
   - `tools/blender/towers.blend`, which you can open in Blender.
   - A preview render in `tools/blender/renders/`.
 - The holding poses live in `MODEL_POSES` in `src/render/characters.js`. Each character has an `idle` pose (the relaxed stance) and an `aim` pose (used while firing).
-- Upgrade extras still layer on top of the model, as long as they differ from what the model already has: `hat`, `sunglasses`, `goggles`, `bandolier`, `medals`, and a different `weapon`.
+- Upgrade extras still layer on top of the model, as long as they differ from what the model already has: `hat`, `sunglasses`, `goggles`, `bandolier`, `medals`, `radio`, `cape`, and a different `weapon`.
+- `rifle_scoped` and `minigun_twin` keep the Blender gun and add to it (a scope, a second gun) instead of swapping in the blocky one. See `MODEL_WEAPON_VARIANTS` in `src/render/characters.js`.
 
 ## Builder towers (sentries)
 
@@ -144,8 +150,9 @@ Any tower becomes a builder when it has these stats (see `riveter`):
 |---|---|
 | `scrapMax` | scrap needed to build a sentry. Scrap is the damage the tower itself deals. |
 | `maxUnits` | how many of its sentries can be alive at once |
-| `buildRange` / `deadzone` | yellow ring where sentries are placed / red ring where the tower can't shoot or build |
+| `buildRange` / `deadzone` | yellow ring where sentries are placed / red ring where the tower can't shoot or build. Sentries never go closer than `deadzone + 0.9`, so the ring is at least that big. |
 | `unit` | `{ damage, cooldown, range, health, lifespan, hidden, shield, rocket: { damage, count, cooldown, radius } }` |
 
 - Sentries lose health over their lifespan. Slam attacks also damage them; shielded sentries take half damage and can't be stunned.
+- A sentry keeps the `unit` stats its builder had when it was built. Upgrades improve the sentries built afterwards.
 - `sellRate` on a tower sets its sell price. For example, `1/3` refunds a third of what you spent; the default is `0.7`.

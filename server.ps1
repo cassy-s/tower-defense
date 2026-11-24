@@ -1,29 +1,41 @@
+# Zero-install dev server for Windows (no Node needed): .\server.ps1 -> http://localhost:8080
+# Does the same job as tools/serve.mjs (npm start). Keep the two in step.
+param([int]$Port = 8080)
+
 $listener = [System.Net.HttpListener]::new()
-$listener.Prefixes.Add("http://localhost:8080/")
+$listener.Prefixes.Add("http://localhost:$Port/")
 $listener.Start()
-Write-Host "Server running on http://localhost:8080"
+Write-Host "Blockade running at http://localhost:$Port"
 
 $mimeTypes = @{
-    '.html' = 'text/html'
-    '.css'  = 'text/css'
-    '.js'   = 'application/javascript'
-    '.png'  = 'image/png'
-    '.jpg'  = 'image/jpeg'
-    '.svg'  = 'image/svg+xml'
-    '.json' = 'application/json'
-    '.ico'  = 'image/x-icon'
+    '.html'  = 'text/html; charset=utf-8'
+    '.css'   = 'text/css; charset=utf-8'
+    '.js'    = 'text/javascript; charset=utf-8'
+    '.mjs'   = 'text/javascript; charset=utf-8'
+    '.json'  = 'application/json'
+    '.png'   = 'image/png'
+    '.jpg'   = 'image/jpeg'
+    '.svg'   = 'image/svg+xml'
+    '.ico'   = 'image/x-icon'
+    '.woff2' = 'font/woff2'
+    '.md'    = 'text/plain; charset=utf-8'
+    '.txt'   = 'text/plain; charset=utf-8'
 }
 
-$root = $PSScriptRoot
+$root = [System.IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')
 
 while ($listener.IsListening) {
     $ctx = $listener.GetContext()
-    $path = $ctx.Request.Url.LocalPath
-    if ($path -eq '/') { $path = '/index.html' }
-    $filePath = Join-Path $root $path.Replace('/', '\')
+    $path = [System.Uri]::UnescapeDataString($ctx.Request.Url.AbsolutePath)
+    if ($path.EndsWith('/')) { $path = $path + 'index.html' }
+    $filePath = [System.IO.Path]::GetFullPath((Join-Path $root $path.Replace('/', '\')))
+    $ctx.Response.Headers.Add('Cache-Control', 'no-cache')
 
-    if (Test-Path $filePath -PathType Leaf) {
-        $ext = [System.IO.Path]::GetExtension($filePath)
+    # Only serve files inside the project folder (not ..\ or a sibling folder).
+    if (-not $filePath.StartsWith($root + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $ctx.Response.StatusCode = 403
+    } elseif (Test-Path -LiteralPath $filePath -PathType Leaf) {
+        $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
         $contentType = $mimeTypes[$ext]
         if (-not $contentType) { $contentType = 'application/octet-stream' }
         $ctx.Response.ContentType = $contentType

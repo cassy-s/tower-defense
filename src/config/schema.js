@@ -28,7 +28,8 @@ export const ENEMY_BODIES = ['walker', 'runner', 'crawler', 'bloater', 'brute', 
 export const ENEMY_ABILITIES = ['spit', 'haste', 'heal', 'summon', 'slam', 'enrage', 'deathSpawn'];
 const STAT_EXTRA = ['flameColor'];
 const UPGRADE_KEYS = ['name', 'cost', 'desc', 'set', 'add', 'mul', 'look'];
-const TOWER_KEYS = ['name', 'role', 'description', 'cost', 'sellRate', 'footprint', 'limit', 'look', 'stats', 'upgrades'];
+const TOWER_KEYS = ['name', 'role', 'description', 'cost', 'sellRate', 'footprint', 'limit', 'look', 'stats', 'upgrades', 'shot', 'hooks'];
+export const SHOT_STYLES = ['normal', 'heavy'];
 const ROLES = ['Damage', 'Splash', 'Support', 'Economy'];
 
 export function validateContent() {
@@ -42,6 +43,7 @@ export function validateContent() {
     if (!t.name) err(w, 'missing name');
     if (typeof t.cost !== 'number' || t.cost <= 0) err(w, 'cost must be a positive number');
     if (!ROLES.includes(t.role)) err(w, `role should be one of ${ROLES.join(', ')}`);
+    if (t.shot !== undefined && !SHOT_STYLES.includes(t.shot)) err(w, `shot should be one of ${SHOT_STYLES.join(', ')}`);
     if (!t.stats) { err(w, 'missing stats'); continue; }
     const knownAttack = (a) => !!(ATTACKS[a] || ATTACK_HANDLERS[a]);
     if (!Array.isArray(t.upgrades)) err(w, 'upgrades must be an array (use [] for none)');

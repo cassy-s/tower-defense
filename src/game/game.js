@@ -6,7 +6,7 @@ import { DIFFICULTIES, getWave, waveBonus, waveHpScale } from '../config/waves.j
 import { Path } from './path.js';
 import { Enemy } from './enemy.js';
 import { Tower, computeStats } from './tower.js';
-import { Sentry } from './sentry.js';
+import { Sentry, SENTRY_RADIUS } from './sentry.js';
 import { buildLayout } from './layout.js';
 import { mulberry32 } from './rng.js';
 
@@ -41,8 +41,14 @@ export class Game {
     this.autoTimer = 0;
     this.seen = new Set();
     this.stats = { kills: 0, leaked: 0, earned: 0, spent: 0, built: 0 };
+    this.retired = [];      // sold towers, so the end screen can still credit them
+    this.cashFrac = 0;      // fractions of a dollar from multiplied bounties
+    this.idCounter = 0;
     this.listeners = {};
   }
+
+  /** Ids for towers, zombies, sentries and projectiles. Unique within this game. */
+  newId() { return ++this.idCounter; }
 
   // ------------------------------------------------------------ events ----
   on(type, fn) { (this.listeners[type] ||= []).push(fn); return () => this.off(type, fn); }
@@ -51,7 +57,21 @@ export class Game {
   later(delay, fn) { this.timers.push({ at: this.time + delay, fn }); }
 
   // ------------------------------------------------------------ economy ---
-  addCash(n, reason) { this.cash += n; if (n > 0) this.stats.earned += n; this.emit('cash', { amount: n, reason }); }
+  /**
+   * Cash is always a whole number. Multiplied bounties (Easy ×1.1, Swift ×1.2)
+   * leave fractions of a dollar; those are saved up and paid out once they add
+   * up to a full dollar, so nothing is lost. Returns the whole dollars added.
+   */
+  addCash(n, reason) {
+    this.cashFrac += n;
+    const whole = Math.floor(this.cashFrac + 1e-9);
+    this.cashFrac -= whole;
+    if (!whole) return 0;
+    this.cash += whole;
+    if (whole > 0) this.stats.earned += whole;
+    this.emit('cash', { amount: whole, reason });
+    return whole;
+  }
   canAfford(n) { return this.cash >= n; }
 
   // ---------------------------------------------------------- placement ---
@@ -72,6 +92,13 @@ export class Game {
       if (!o.radius) continue;
       const min = o.radius + r * 0.45;
       if ((o.x - x) ** 2 + (o.z - z) ** 2 < min * min) return { ok: false, reason: 'Something is in the way' };
+    }
+    // Sentries, and spots where a Riveter is building one right now.
+    const sMin = r * 0.55 + SENTRY_RADIUS;
+    for (const s of this.sentries) if ((s.x - x) ** 2 + (s.z - z) ** 2 < sMin * sMin) return { ok: false, reason: 'A sentry is in the way' };
+    for (const t of this.towers) {
+      const b = t.buildSpot;
+      if (b && (b.x - x) ** 2 + (b.z - z) ** 2 < sMin * sMin) return { ok: false, reason: 'A sentry is being built there' };
     }
     if (def.limit && this.countOf(type) >= def.limit) return { ok: false, reason: `Limit of ${def.limit} reached` };
     if (!this.canAfford(def.cost)) return { ok: false, reason: 'Not enough cash' };
@@ -106,6 +133,7 @@ export class Game {
     const i = this.towers.indexOf(t);
     if (i < 0) return;
     this.towers.splice(i, 1);
+    if (t.kills > 0) this.retired.push(t);
     for (const s of this.sentries.filter((s) => s.owner === t)) this.removeSentry(s, 'sold');
     this.addCash(t.sellValue, 'sell');
     this.emit('towerSold', { tower: t });
@@ -118,6 +146,8 @@ export class Game {
     if (this.state !== 'playing' || this.wave >= this.maxWaves) return false;
     this.wave++;
     const w = this.wave;
+    // Full refunds only last until the towers have seen a wave.
+    for (const t of this.towers) t.refundable = false;
     const groups = getWave(w);
     let total = 0;
     for (const grp of groups) {
@@ -156,11 +186,17 @@ export class Game {
   completeWave(w) {
     if (this.state !== 'playing') return;
     const bonus = Math.round(waveBonus(w) * this.difficulty.cashMult);
-    let income = 0;
-    for (const t of this.towers) if (t.stats.income) income += t.stats.income;
     this.addCash(bonus, 'wave');
-    income = Math.round(income * this.difficulty.cashMult);
-    if (income) { this.addCash(income, 'income'); for (const t of this.towers) if (t.stats.income) this.emit('income', { tower: t, amount: t.stats.income }); }
+    // Each depot pays a whole number of dollars, so the "+$" text over it is
+    // exactly what lands in the bank.
+    let income = 0;
+    for (const t of this.towers) {
+      if (!t.stats.income) continue;
+      const amount = Math.round(t.stats.income * this.difficulty.cashMult);
+      income += amount;
+      this.emit('income', { tower: t, amount });
+    }
+    if (income) this.addCash(income, 'income');
     this.emit('waveEnd', { wave: w, bonus, income });
     if (this.wave >= this.maxWaves && this.waveOpen.size === 0 && this.spawnQueue.length === 0) {
       this.state = 'won';
@@ -173,8 +209,9 @@ export class Game {
     e.alive = false;
     this.stats.kills++;
     if (source) source.kills++;
-    this.addCash(e.bounty * this.difficulty.cashMult, 'kill');
-    this.emit('kill', { enemy: e, source });
+    const reward = e.bounty * this.difficulty.cashMult;
+    this.addCash(reward, 'kill');
+    this.emit('kill', { enemy: e, source, reward });
     e.onDeath();
     this.resolveEnemy(e);
   }
@@ -290,14 +327,24 @@ export class Game {
       for (const t of this.towers) {
         if (t === src) continue;
         if ((t.x - src.x) ** 2 + (t.z - src.z) ** 2 > r * r) continue;
-        if (aura) {
-          if (aura.cooldownMult !== undefined) t.buff.cooldownMult = Math.min(t.buff.cooldownMult, Math.max(0.2, aura.cooldownMult));
-          if (aura.rangeMult !== undefined) t.buff.rangeMult = Math.max(t.buff.rangeMult, aura.rangeMult);
-          if (aura.grantHidden) t.buff.grantHidden = true;
-        }
+        if (aura) applyAura(t.buff, aura, t.stats);
         if (rally) t.buff.rally = true;
       }
     }
+  }
+
+  /** The aura buffs a tower of this type would get if placed at x, z (for the placement preview). */
+  previewBuff(type, x, z) {
+    const buff = { cooldownMult: 1, rangeMult: 1, grantHidden: false, rally: false };
+    const stats = computeStats(type, 0).stats;
+    for (const src of this.towers) {
+      const aura = src.stats.aura;
+      if (!aura || src.stunTimer > 0) continue;
+      const r = src.stats.range;
+      if ((x - src.x) ** 2 + (z - src.z) ** 2 > r * r) continue;
+      applyAura(buff, aura, stats);
+    }
+    return buff;
   }
 
   computeHaste() {
@@ -333,6 +380,9 @@ export class Game {
       if (due.length) { this.timers = this.timers.filter((t) => t.at > this.time); for (const t of due) t.fn(); }
     }
 
+    for (const e of this.enemies) e.savePrev();
+    for (const p of this.projectiles) { p.px = p.x; p.pz = p.z; p.py = p.y; }
+
     this.computeHaste();
     for (const e of this.enemies) if (e.alive) e.update(dt);
     this.computeBuffs();
@@ -343,4 +393,70 @@ export class Game {
     // Compact dead enemies (renderer keeps its own references for death anims).
     if (this.enemies.some((e) => !e.alive)) this.enemies = this.enemies.filter((e) => e.alive);
   }
+
+  // -------------------------------------------------------- save / load ---
+  /** True between waves, when the game can be saved and resumed exactly. */
+  get canSave() {
+    return this.state === 'playing' && !this.waveInProgress && this.spawnQueue.length === 0 && this.enemies.length === 0;
+  }
+
+  /** Plain-data snapshot of a game between waves (see canSave). */
+  serialize() {
+    const towers = this.towers;
+    return {
+      v: SAVE_VERSION,
+      mapId: this.mapId, difficulty: this.difficultyId,
+      wave: this.wave, cash: this.cash, cashFrac: this.cashFrac, lives: this.lives,
+      autoStart: this.autoStart, nextSpawnPath: this.nextSpawnPath,
+      seen: [...this.seen], stats: { ...this.stats },
+      towers: towers.map((t) => ({
+        type: t.type, x: t.x, z: t.z, level: t.level, spent: t.spent, refundable: t.refundable, targeting: t.targeting,
+        kills: t.kills, damageDealt: t.damageDealt, abilityTimer: t.abilityTimer, scrap: t.scrap, angle: t.angle,
+      })),
+      retired: this.retired.map((t) => ({ type: t.type, level: t.level, kills: t.kills })),
+      sentries: this.sentries.map((s) => ({ owner: towers.indexOf(s.owner), x: s.x, z: s.z, hp: s.hp, stats: s.stats, tier: s.tier })),
+      savedAt: Date.now(),
+    };
+  }
+
+  /** Rebuilds a game from serialize() output. Returns null if the data is unusable. */
+  static fromSave(data, { seed = 1 } = {}) {
+    if (!data || data.v !== SAVE_VERSION || !MAPS[data.mapId] || !DIFFICULTIES[data.difficulty]) return null;
+    const g = new Game({ mapId: data.mapId, difficulty: data.difficulty, seed });
+    g.wave = data.wave; g.cash = data.cash; g.cashFrac = data.cashFrac || 0; g.lives = data.lives;
+    g.autoStart = !!data.autoStart; g.nextSpawnPath = data.nextSpawnPath || 0;
+    g.seen = new Set(data.seen || []);
+    Object.assign(g.stats, data.stats || {});
+    for (const d of data.towers || []) {
+      if (!TOWERS[d.type]) continue;
+      const t = new Tower(g, d.type, d.x, d.z);
+      t.level = Math.min(d.level || 0, t.maxLevel);
+      t.refresh();
+      Object.assign(t, {
+        spent: d.spent, refundable: !!d.refundable, targeting: d.targeting || t.targeting, kills: d.kills || 0,
+        damageDealt: d.damageDealt || 0, abilityTimer: d.abilityTimer || 0, scrap: d.scrap || 0, angle: d.angle ?? t.angle,
+      });
+      g.towers.push(t);
+    }
+    g.retired = (data.retired || []).filter((r) => TOWERS[r.type]).map((r) => ({ ...r, def: TOWERS[r.type] }));
+    for (const d of data.sentries || []) {
+      const owner = g.towers[d.owner];
+      if (!owner || !d.stats) continue;
+      const s = new Sentry(g, owner, d.x, d.z);
+      s.stats = { ...d.stats }; s.tier = d.tier ?? owner.level;
+      s.maxHp = s.stats.health; s.hp = Math.min(d.hp, s.maxHp);
+      s.drain = s.stats.health / Math.max(1, s.stats.lifespan);
+      g.sentries.push(s);
+    }
+    return g;
+  }
+}
+
+const SAVE_VERSION = 1;
+
+/** Applies one aura to a tower's buff. Aura towers don't take range from other auras (their ring is their aura). */
+function applyAura(buff, aura, stats) {
+  if (aura.cooldownMult !== undefined) buff.cooldownMult = Math.min(buff.cooldownMult, Math.max(0.2, aura.cooldownMult));
+  if (aura.rangeMult !== undefined && !stats.aura) buff.rangeMult = Math.max(buff.rangeMult, aura.rangeMult);
+  if (aura.grantHidden) buff.grantHidden = true;
 }

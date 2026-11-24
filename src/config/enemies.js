@@ -46,7 +46,7 @@ export const ENEMIES = {
     look: { body: 'walker', skin: ['#5fa58a'], shirt: ['#e2c22c'], pants: ['#e2c22c'], hazmat: true },
   },
   shade: {
-    name: 'Shade', blurb: 'Hidden. Only towers that can see hidden zombies can hit it.',
+    name: 'Shade', blurb: 'Hidden. Only towers that see hidden zombies can target it, but explosions aimed at other zombies still catch it.',
     hp: 14, speed: 4.0, bounty: 4, leak: 2, threat: 3.5, hidden: true,
     look: { body: 'runner', skin: ['#4a5560'], shirt: ['#1d2026'], pants: ['#1d2026'], hood: true, glow: '#7fe0ff' },
   },

@@ -7,13 +7,14 @@
 //   buildRange sentries are placed within this many studs (yellow ring)
 //   deadzone   the tower can't shoot or build closer than this (red ring)
 //   unit       { damage, cooldown, range, health, lifespan, hidden, shield, rocket }
+//
+// A sentry keeps the stats its builder had when it was put down; upgrading the
+// builder improves the sentries it builds after that.
 import { WIDTH, HEIGHT } from '../config/maps.js';
-
-let nextId = 1;
 
 export class Sentry {
   constructor(game, owner, x, z) {
-    this.id = nextId++;
+    this.id = game.newId();
     this.game = game;
     this.owner = owner;
     this.x = x; this.z = z;
@@ -90,10 +91,30 @@ export class Sentry {
   }
 }
 
+/** How close a tower's centre may be to a sentry (or a sentry being built). */
+export const SENTRY_RADIUS = 0.8;
+
+/**
+ * The ring around a builder tower where its sentries go. `outer` is what the
+ * yellow ring shows. Sentries can't go right next to the tower, so at high
+ * levels (small buildRange) the ring is a little bigger than buildRange.
+ */
+export function sentryRing(stats) {
+  const inner = (stats.deadzone || 0) + 0.9;
+  return { inner, outer: Math.max(inner + 0.2, stats.buildRange || 0) };
+}
+
+/** True if nothing (tower, sentry, prop) is in the way of a sentry at x, z. */
+export function sentrySpotFree(game, x, z) {
+  for (const t of game.towers) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (t.footprint * 0.75 + 0.6) ** 2) return false;
+  for (const o of game.sentries) if ((o.x - x) ** 2 + (o.z - z) ** 2 < 1.6 ** 2) return false;
+  for (const o of game.layout.props) if (o.radius && (o.x - x) ** 2 + (o.z - z) ** 2 < (o.radius + 0.4) ** 2) return false;
+  return true;
+}
+
 /** Best free spot for a new sentry around a builder tower, or null. */
 export function findSentrySpot(game, tower) {
-  const s = tower.stats;
-  const inner = (s.deadzone || 0) + 0.9, outer = Math.max(inner + 0.2, s.buildRange);
+  const { inner, outer } = sentryRing(tower.stats);
   let best = null, bestScore = Infinity;
   for (let ri = 0; ri < 3; ri++) {
     const r = inner + ((outer - inner) * (ri + 0.5)) / 3;
@@ -101,10 +122,9 @@ export function findSentrySpot(game, tower) {
       const a = (k / 20) * Math.PI * 2 + ri * 0.4;
       const x = tower.x + Math.sin(a) * r, z = tower.z + Math.cos(a) * r;
       if (x < 1 || z < 1 || x > WIDTH - 1 || z > HEIGHT - 1) continue;
-      let blocked = false;
-      for (const t of game.towers) if ((t.x - x) ** 2 + (t.z - z) ** 2 < (t.footprint * 0.75 + 0.6) ** 2) { blocked = true; break; }
-      if (!blocked) for (const o of game.sentries) if ((o.x - x) ** 2 + (o.z - z) ** 2 < 1.6 ** 2) { blocked = true; break; }
-      if (!blocked) for (const o of game.layout.props) if (o.radius && (o.x - x) ** 2 + (o.z - z) ** 2 < (o.radius + 0.4) ** 2) { blocked = true; break; }
+      // Also keep clear of spots other builders are about to use.
+      let blocked = !sentrySpotFree(game, x, z);
+      if (!blocked) for (const t of game.towers) if (t.buildSpot && (t.buildSpot.x - x) ** 2 + (t.buildSpot.z - z) ** 2 < 1.6 ** 2) { blocked = true; break; }
       if (blocked) continue;
       // Prefer the roadside: close to the path, but not in the middle of it.
       let d = Infinity;

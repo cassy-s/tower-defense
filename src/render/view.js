@@ -1,19 +1,23 @@
 // The 3D view: owns the renderer, scene, camera and all entity visuals.
-// It never changes game state â€” it only listens to game events and mirrors
+// It never changes game state — it only listens to game events and mirrors
 // what the simulation is doing.
 import * as THREE from 'three';
 import { buildWorld, toWorld } from './world.js';
 import { buildTower, buildZombie, zombieVariant, buildPlate, animateZombie, cloneRig, markShared, buildSentry } from './characters.js';
-
-const zombieTemplates = new Map();
-const projTemplates = new Map();
 import { FX } from './fx.js';
 import { PartBuilder, disposeTree, MAT, shade } from './geo.js';
 import { WIDTH, HEIGHT, THEMES } from '../config/maps.js';
 import { TOWERS } from '../config/towers.js';
 import { computeStats } from '../game/tower.js';
+import { sentryRing } from '../game/sentry.js';
+
+const zombieTemplates = new Map();
+const projTemplates = new Map();
+const lerp = (a, b, k) => a + (b - a) * k;
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
+// Reused spawn options for death dust (dozens per kill; no garbage per particle).
+const _dust = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, size: 0.2, life: 1, gravity: -1.5, drag: 1.2, spin: 4, r: 1, g: 1, b: 1 };
 const ENEMY_HEIGHT = 3.4;
 const DISSOLVE_TIME = 0.55;
 const FLY_Y = 3.6;
@@ -75,6 +79,7 @@ export class View {
     this.hovered = null;
     this.baseShake = 0;
     this.timers = [];
+    this.alpha = 1; // how far between the last two simulation steps we are drawing
 
     // Range indicator
     const disc = new THREE.Mesh(new THREE.CircleGeometry(1, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.2, depthWrite: false }));
@@ -118,7 +123,7 @@ export class View {
     on('towerUpgraded', ({ tower }) => this.rebuildTower(tower, true));
     on('towerSold', ({ tower }) => this.removeTower(tower, true));
     on('spawn', ({ enemy }) => this.addEnemy(enemy));
-    on('kill', ({ enemy }) => this.killEnemy(enemy));
+    on('kill', ({ enemy, reward }) => this.killEnemy(enemy, reward));
     on('leak', ({ enemy }) => this.leakEnemy(enemy));
     on('shot', (d) => this.onShot(d));
     on('spread', (d) => this.onSpread(d));
@@ -232,6 +237,8 @@ export class View {
     this.sentryViews.clear(); this.dyingSentries = [];
     this.timers = [];
     this.towerViews.clear(); this.enemyViews.clear(); this.projViews.clear(); this.dying = []; this.flyers = [];
+    this.fx.reset(); // particles, splats and floating text don't carry over into the next game
+    this.baseShake = 0;
     if (this.world) { this.scene.remove(this.world.group); disposeTree(this.world.group); this.world = null; }
     this.hideGhost();
     this.range.visible = false;
@@ -309,15 +316,19 @@ export class View {
     const to = this.enemyCenter(enemy);
     to.x += (Math.random() - 0.5) * 0.3; to.z += (Math.random() - 0.5) * 0.3;
     const s = tower.stats;
-    const heavy = s.damage >= 10;
+    // The "heavy" look and sound is a property of the tower (the sniper), not of
+    // how much damage a shot does: a max-level Gatling hits for 12 but fires
+    // 20+ times a second, so it gets light effects and fewer particles.
+    const heavy = tower.def.shot === 'heavy';
+    const rapid = s.attack === 'spinup';
     this.fx.tracer(from, to, heavy ? '#fff1b8' : '#ffe08a', heavy ? 0.12 : 0.06, heavy ? 0.12 : 0.06);
     _v.set(to.x - from.x, 0, to.z - from.z).normalize();
     this.fx.muzzle(from, _v, '#ffc84a', heavy ? 0.7 : 0.4);
     const ev = this.enemyViews.get(enemy.id);
-    this.fx.goo(to, ev ? ev.gore : '#3a5a2a', heavy ? 6 : 2, heavy ? 5 : 3);
-    if (enemy.armor > 0 && s.armorPierce < 0.5) this.fx.sparks(to, '#ffffff', 2, 3);
-    if (s.attack === 'hitscan' || (s.attack === 'spinup' && Math.random() < 0.45)) this.ejectCasing(tv);
-    if (this.onSound) this.onSound(heavy ? 'sniper' : tower.stats.attack === 'spinup' ? 'minigun' : 'shot', tower);
+    if (!rapid || Math.random() < 0.35) this.fx.goo(to, ev ? ev.gore : '#3a5a2a', heavy ? 6 : rapid ? 1 : 2, heavy ? 5 : 3);
+    if (enemy.armor > 0 && s.armorPierce < 0.5 && (!rapid || Math.random() < 0.3)) this.fx.sparks(to, '#ffffff', 2, 3);
+    if (s.attack === 'hitscan' || (rapid && Math.random() < 0.45)) this.ejectCasing(tv);
+    if (this.onSound) this.onSound(heavy ? 'sniper' : rapid ? 'minigun' : 'shot', tower);
   }
 
   onSpread({ tower, hits }) {
@@ -413,10 +424,11 @@ export class View {
     if (e.boss) this.onSound?.('boss');
   }
 
-  killEnemy(e) {
+  killEnemy(e, reward = e.bounty) {
     const ev = this.enemyViews.get(e.id);
     if (!ev) return;
     this.enemyViews.delete(e.id);
+    this.syncEnemy(ev, 0, 1); // die where the simulation says it died
     ev.bar.visible = false;
     ev.deathT = 0;
     this.dying.push(ev);
@@ -428,7 +440,7 @@ export class View {
     ev.wind = { x: Math.cos(a) * 0.8 + e.dx * 0.6, z: Math.sin(a) * 0.8 + e.dz * 0.6 };
     this.dustFrom(ev, Math.round(Math.min(60, 26 * e.size) * this.fx.quality));
     for (let i = 0; i < 6; i++) this.fx.glow.spawn({ x: c.x + (Math.random() - 0.5) * e.size, y: c.y + (Math.random() - 0.5) * e.size * 1.5, z: c.z + (Math.random() - 0.5) * e.size, vy: 2.5, size: 0.12, life: 0.5, color: '#fff1c0' });
-    if (e.boss) { this.fx.explosion(c.x, c.z, 4); this.fx.text({ ...c, y: c.y + 2 }, `+$${Math.round(e.bounty)}`, 'cash big'); }
+    if (e.boss) { this.fx.explosion(c.x, c.z, 4); this.fx.text({ ...c, y: c.y + 2 }, `+$${Math.round(reward)}`, 'cash big'); }
     this.onSound?.(e.boss ? 'bossDie' : 'die');
   }
 
@@ -445,9 +457,9 @@ export class View {
     this.onSound?.('leak');
   }
 
-  syncEnemy(ev, dt) {
+  syncEnemy(ev, dt, alpha = this.alpha) {
     const e = ev.enemy, rig = ev.rig;
-    const [x, z] = toWorld(e.x, e.z);
+    const [x, z] = toWorld(lerp(e.px ?? e.x, e.x, alpha), lerp(e.pz ?? e.z, e.z, alpha));
     ev.root.position.set(x, e.flying ? FLY_Y + Math.sin(this.time * 3 + ev.phase) * 0.3 : 0, z);
     // facing
     const target = Math.atan2(e.dx, e.dz);
@@ -457,8 +469,8 @@ export class View {
     ev.root.rotation.y = 0;
     // spawn rise-from-ground
     if (ev.rise < 1) { ev.rise = Math.min(1, ev.rise + dt * 2.5); rig.root.position.y = (ev.rise - 1) * 1.2; }
-    // walk cycle
-    const sp = e.speed;
+    // walk cycle (frozen once the game is over: the survivors stop where they are)
+    const sp = this.game?.state === 'playing' ? e.speed : 0;
     ev.phase += dt * sp * (rig.brute ? 1.4 : 2.2);
     animateZombie(rig, ev.phase, this.time);
     // hit pop
@@ -521,7 +533,8 @@ export class View {
   }
 
   // ---------------------------------------------------------- placement ---
-  showGhost(type, x, z, ok) {
+  /** rangeMult: buffs (Field Officer range) the tower would get at this spot. */
+  showGhost(type, x, z, ok, rangeMult = 1) {
     if (!this.ghost || this.ghost.type !== type) {
       this.hideGhost();
       const look = computeStats(type, 0).look;
@@ -533,8 +546,9 @@ export class View {
     this.ghost.rig.root.position.set(wx, 0.2, wz);
     this.ghost.rig.root.rotation.y = Math.atan2(WIDTH / 2 - x, HEIGHT / 2 - z);
     this.ghost.rig.root.visible = true;
-    this.showRange(wx, wz, computeStats(type, 0).stats.range, ok ? '#9dff8a' : '#ff3a2a');
-    this.showBuilderRings(wx, wz, computeStats(type, 0).stats);
+    const stats = computeStats(type, 0).stats;
+    this.showRange(wx, wz, stats.range * rangeMult, ok ? '#9dff8a' : '#ff3a2a');
+    this.showBuilderRings(wx, wz, stats);
     const fp = TOWERS[type].footprint || 1.5;
     this.foot.visible = true; this.foot.position.set(wx, 0.2, wz); this.foot.scale.set(fp, 1, fp);
     this.foot.material.color.set(ok ? '#7dff6a' : '#ff3a2a');
@@ -556,6 +570,7 @@ export class View {
 
   showRangeFor(t) {
     const [x, z] = toWorld(t.x, t.z);
+    this.shownRange = t.range;
     this.showRange(x, z, t.range, t.stats.aura ? '#ffd34a' : '#bfe6ff');
     this.showBuilderRings(x, z, t.stats);
   }
@@ -570,7 +585,8 @@ export class View {
     const on = !!(stats && stats.scrapMax);
     build.visible = dead.visible = on;
     if (!on) return;
-    build.position.set(x, 0.18, z); build.scale.set(stats.buildRange, 1, stats.buildRange);
+    const { outer } = sentryRing(stats); // where sentries really go (see findSentrySpot)
+    build.position.set(x, 0.18, z); build.scale.set(outer, 1, outer);
     dead.position.set(x, 0.19, z); dead.scale.set(stats.deadzone, 1, stats.deadzone);
   }
 
@@ -590,6 +606,14 @@ export class View {
     const hit = this.raycaster.ray.intersectPlane(this.groundPlane, _v2);
     if (!hit) return null;
     return { x: hit.x + WIDTH / 2, z: hit.z + HEIGHT / 2 };
+  }
+
+  /** Screen x (CSS pixels) of a tower, used to open the inspector on the other side. */
+  screenX(t) {
+    const [x, z] = toWorld(t.x, t.z);
+    _v.set(x, 0, z).project(this.camera);
+    const r = this.canvas.getBoundingClientRect();
+    return r.left + ((_v.x + 1) / 2) * r.width;
   }
 
   towerAt(x, z) {
@@ -678,8 +702,9 @@ export class View {
   // ------------------------------------------------------------- frame ----
   later(delay, fn) { this.timers.push({ at: this.time + delay, fn }); }
 
-  update(dt) {
+  update(dt, alpha = 1) {
     this.time += dt;
+    this.alpha = alpha;
     if (this.timers.length) {
       const due = this.timers.filter((t) => t.at <= this.time);
       if (due.length) { this.timers = this.timers.filter((t) => t.at > this.time); for (const t of due) t.fn(); }
@@ -691,6 +716,8 @@ export class View {
     this.updateSentries(dt);
 
     if (this.selRing.visible) { const k = 1 + Math.sin(this.time * 6) * 0.06; const f = this.selected ? this.selected.footprint * 1.05 : 1; this.selRing.scale.set(f * k, 1, f * k); }
+    // A Field Officer buff starting or ending changes the selected tower's range.
+    if (this.selected && !this.ghost && this.selected.range !== this.shownRange) this.showRangeFor(this.selected);
     for (const ev of this.enemyViews.values()) this.syncEnemy(ev, dt);
 
     for (let i = this.dying.length - 1; i >= 0; i--) {
@@ -710,9 +737,9 @@ export class View {
 
     for (const m of this.projViews.values()) {
       const p = m.userData.p;
-      const [x, z] = toWorld(p.x, p.z);
+      const [x, z] = toWorld(lerp(p.px ?? p.x, p.x, alpha), lerp(p.pz ?? p.z, p.z, alpha));
       if (p.kind === 'bolt') { m.position.set(x, 1.4, z); m.rotation.set(0, Math.atan2(p.vx, p.vz), 0); m.rotateZ(this.time * 30); }
-      else { m.position.set(x, p.y ?? 1.6, z); m.rotation.x += dt * 8; m.rotation.y += dt * 5; }
+      else { m.position.set(x, lerp(p.py ?? p.y ?? 1.6, p.y ?? 1.6, alpha), z); m.rotation.x += dt * 8; m.rotation.y += dt * 5; }
     }
     this.updateWorldBits(dt);
   }
@@ -749,14 +776,16 @@ export class View {
     } else {
       rig.armR.rotation.x = rig.restArmR + lower - r * 0.2;
       rig.armL.rotation.x = rig.restArmL + lower * 0.9 - r * 0.15;
+      rig.mount.position.x = rig.restMountX;
       rig.mount.position.z = rig.restMountZ - r * 0.32 - lower * 0.35;
       rig.mount.position.y = rig.restMountY - lower * 0.9;
       rig.mount.rotation.x = lower * 0.55 - r * 0.14;
     }
-    // Minigun: shake while spinning.
+    // Minigun: shake while spinning. Both branches above put the gun back at its
+    // rest position every frame, so the jitter can't add up and walk it away.
     if (t.stats.attack === 'spinup' && t.spin > 0.2) {
       const j = t.spin * 0.04;
-      rig.mount.position.x = (rig.pose?.mount?.[0] ?? rig.mount.position.x) + (Math.random() - 0.5) * j;
+      rig.mount.position.x += (Math.random() - 0.5) * j;
       rig.body.position.y += (Math.random() - 0.5) * j;
     }
     // Engineer: hammering while she builds a sentry.
@@ -822,11 +851,16 @@ export class View {
     ev.root.updateMatrixWorld(true);
     for (let i = 0; i < n; i++) {
       const p = pts[(Math.random() * pts.length) | 0];
-      _v.copy(p.local).applyMatrix4(p.mesh.matrixWorld);
-      this.fx.lit.spawn({ x: _v.x, y: _v.y, z: _v.z, vx: (Math.random() - 0.5) * 1.6 + ev.wind.x, vy: 1.2 + Math.random() * 2.2, vz: (Math.random() - 0.5) * 1.6 + ev.wind.z, size: 0.18 + Math.random() * 0.2, life: 0.8 + Math.random() * 0.7, gravity: -1.5, drag: 1.2, spin: 4, color: p.color });
+      _v.set(p.lx, p.ly, p.lz).applyMatrix4(p.mesh.matrixWorld);
+      _dust.x = _v.x; _dust.y = _v.y; _dust.z = _v.z;
+      _dust.vx = (Math.random() - 0.5) * 1.6 + ev.wind.x; _dust.vy = 1.2 + Math.random() * 2.2; _dust.vz = (Math.random() - 0.5) * 1.6 + ev.wind.z;
+      _dust.size = 0.18 + Math.random() * 0.2; _dust.life = 0.8 + Math.random() * 0.7;
+      _dust.r = p.r; _dust.g = p.g; _dust.b = p.b;
+      this.fx.lit.spawn(_dust);
     }
   }
 
+  /** Points on the zombie's body to blow away as dust. Plain numbers, no Color/Vector3 per point. */
   prepareDust(ev, count) {
     const pts = [];
     ev.rig.root.updateMatrixWorld(true);
@@ -837,8 +871,7 @@ export class View {
       const mesh = meshes[(Math.random() * meshes.length) | 0];
       const pos = mesh.geometry.attributes.position, colA = mesh.geometry.attributes.color;
       const j = (Math.random() * pos.count) | 0;
-      const c = new THREE.Color(colA.getX(j), colA.getY(j), colA.getZ(j));
-      pts.push({ mesh, local: new THREE.Vector3().fromBufferAttribute(pos, j), color: '#' + c.getHexString() });
+      pts.push({ mesh, lx: pos.getX(j), ly: pos.getY(j), lz: pos.getZ(j), r: colA.getX(j), g: colA.getY(j), b: colA.getZ(j) });
     }
     return pts;
   }
@@ -861,7 +894,15 @@ export class View {
       }
       pos.needsUpdate = true;
     }
-    if (this.baseShake > 0) { this.baseShake = Math.max(0, this.baseShake - dt); }
+    // The bunker shudders when a zombie gets in.
+    const bunker = this.world?.bunker;
+    if (bunker) {
+      if (this.baseShake > 0) {
+        this.baseShake = Math.max(0, this.baseShake - dt);
+        const a = this.fx.reducedMotion ? 0 : this.baseShake * 0.5;
+        bunker.position.set((Math.random() - 0.5) * a, 0, (Math.random() - 0.5) * a);
+      } else if (bunker.position.x || bunker.position.z) bunker.position.set(0, 0, 0);
+    }
   }
 
   render(realDt) {

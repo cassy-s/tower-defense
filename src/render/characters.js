@@ -257,7 +257,7 @@ function applyPose(rig) {
       mount.position.set(0.3, 1.45, 1.0);
   }
   rig.restArmL = armL.rotation.x; rig.restArmR = armR.rotation.x;
-  rig.restMountZ = mount.position.z; rig.restMountY = mount.position.y;
+  rig.restMountX = mount.position.x; rig.restMountZ = mount.position.z; rig.restMountY = mount.position.y;
   rig.restHeadX = rig.head.rotation.x;
 }
 
@@ -281,6 +281,26 @@ export const MODEL_POSES = {
   },
 };
 
+/** Upgrade weapons that are a Blender weapon plus an extra part. */
+const MODEL_WEAPON_VARIANTS = {
+  rifle_scoped: { base: 'rifle', extra: 'scope' },
+  minigun_twin: { base: 'minigun', extra: 'twin' },
+};
+
+/** A blocky scope that sits on top of a gun, sized from the gun's bounding box. */
+function scopeFor(box, material) {
+  const b = new PartBuilder();
+  const len = (box.max.z - box.min.z) * 0.34;
+  const cz = box.min.z + (box.max.z - box.min.z) * 0.42;
+  const top = box.max.y, cx = (box.min.x + box.max.x) / 2;
+  b.box(0.08, 0.14, 0.08, '#1d1e21', cx, top + 0.05, cz - len * 0.3);
+  b.box(0.08, 0.14, 0.08, '#1d1e21', cx, top + 0.05, cz + len * 0.3);
+  b.cyl(0.1, 0.1, len, '#24262a', cx, top + 0.16, cz, { rx: Math.PI / 2, seg: 10 });
+  b.cyl(0.13, 0.13, 0.12, '#24262a', cx, top + 0.16, cz + len / 2, { rx: Math.PI / 2, seg: 10 });
+  b.cyl(0.1, 0.1, 0.02, '#7fd4ff', cx, top + 0.16, cz + len / 2 + 0.07, { rx: Math.PI / 2, seg: 10, glow: true });
+  return b.build({ material });
+}
+
 function buildModelTower(L, id, ghost) {
   const model = TOWER_MODELS[id];
   const rig = newRig();
@@ -303,16 +323,30 @@ function buildModelTower(L, id, ghost) {
     f.position.set(0, 0.62, 0.615);
     rig.head.add(f);
   }
-  if (L.weapon === model.weapon) {
+  // Upgrades that only add to the gun (a scope, a second barrel set) keep the
+  // hand-made Blender gun and pose, instead of swapping in a simpler blocky one.
+  const variant = MODEL_WEAPON_VARIANTS[L.weapon];
+  if (L.weapon === model.weapon || variant?.base === model.weapon) {
     const g = new THREE.Group();
-    const wb = modelPartBuilder(id, 'weapon');
-    g.add(wb.build({ material: mat }));
+    const gun = new THREE.Group();
+    gun.add(modelPartBuilder(id, 'weapon').build({ material: mat }));
+    rig.spinners = [];
     if (hasModelPart(id, 'spin')) {
       const holder = new THREE.Group();
       holder.position.set(...model.spinPivot);
       holder.add(modelPartBuilder(id, 'spin').build({ material: mat }));
-      g.add(holder);
-      rig.spinners = [holder];
+      gun.add(holder);
+      rig.spinners.push(holder);
+    }
+    g.add(gun);
+    const box = new THREE.Box3().setFromObject(gun);
+    if (variant?.extra === 'scope') g.add(scopeFor(box, mat));
+    if (variant?.extra === 'twin') {
+      // A second gun bolted to the outside of the first.
+      const twin = gun.clone(true);
+      twin.position.x = -(box.max.x - box.min.x) - 0.06;
+      g.add(twin);
+      if (twin.children[1]) rig.spinners.push(twin.children[1]); // its barrel holder (see `gun` above)
     }
     const muzzle = new THREE.Object3D(); muzzle.position.set(...model.muzzle); g.add(muzzle);
     g.scale.setScalar(model.weaponScale || 1);
@@ -812,15 +846,20 @@ export function buildSentry(stats, tier = 0) {
 }
 
 // ----------------------------------------------------------- base plate ----
-const TIER_COLORS = ['#8a8f96', '#b87a3a', '#c9ced6', '#f2c64a', '#6fe3ff'];
+// One colour per level (index = level), so every level of a 6-upgrade tower
+// (the Riveter) looks different.
+const TIER_COLORS = ['#8a8f96', '#b87a3a', '#c9ced6', '#f2c64a', '#6fe3ff', '#b98cff', '#ff6a5a'];
 export function buildPlate(level, footprint) {
   const b = new PartBuilder();
   const r = footprint * 0.75;
+  const col = TIER_COLORS[Math.min(level, TIER_COLORS.length - 1)];
   b.cyl(r, r * 1.05, 0.14, '#3b3f46', 0, 0.07, 0, { seg: 20 });
   b.cyl(r * 0.92, r * 0.92, 0.05, '#2c2f35', 0, 0.16, 0, { seg: 20 });
+  // From level 4 the plate gets a glowing rim in the level colour.
+  if (level >= 4) b.cyl(r * 1.06, r * 1.08, 0.06, col, 0, 0.1, 0, { seg: 24, glow: true });
   for (let i = 0; i < level; i++) {
     const a = Math.PI + (i - (level - 1) / 2) * 0.32;
-    b.box(0.22, 0.12, 0.22, TIER_COLORS[Math.min(level, 4)], Math.sin(a) * r * 0.86, 0.2, Math.cos(a) * r * 0.86, { glow: level >= 4 });
+    b.box(0.22, 0.12, 0.22, col, Math.sin(a) * r * 0.86, 0.2, Math.cos(a) * r * 0.86, { glow: level >= 4 });
   }
   return b.build({ shadows: false });
 }

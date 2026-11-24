@@ -103,7 +103,7 @@ export function buildWorld(game) {
   const mesh = b.build();
   mesh.children.forEach((m) => { m.receiveShadow = true; });
   group.add(mesh);
-  group.add(base.flag);
+  group.add(base.group);
 
   // Outer ground far below the slab, plus fog takes care of the horizon.
   const outer = new THREE.Mesh(
@@ -121,19 +121,24 @@ export function buildWorld(game) {
     pl.position.set(l.x, l.y, l.z);
     group.add(pl);
   }
-  return { group, flag: base.flag, basePos: new THREE.Vector3(ox + game.base.x + 3.2, 0, oz + game.base.z) };
+  return { group, flag: base.flag, bunker: base.group, basePos: new THREE.Vector3(ox + game.base.x + 3.2, 0, oz + game.base.z) };
 }
 
+/**
+ * The bunker, roof extras and flag are their own group (so the view can shake
+ * it when zombies get in); sandbags and posts merge into the static map.
+ */
 function buildBase(b, theme, x, z) {
   const concrete = theme.night ? '#6a6e78' : '#9a968c';
+  const bb = new PartBuilder();
   // bunker
-  b.box(5.2, 3.0, 6.4, concrete, x + 1.2, 1.5, z, { r: 0.15 });
-  b.box(5.8, 0.5, 7.0, shade(concrete, -0.1), x + 1.2, 3.2, z, { r: 0.1 });
-  b.box(0.2, 0.5, 3.6, '#16181b', x - 1.42, 2.1, z);
-  b.box(0.15, 1.8, 1.4, '#3b2f22', x - 1.42, 0.9, z + 2.0);
-  // roof extras: radio mast + crates + sandbags
-  b.cyl(0.08, 0.08, 4, '#2a2a2a', x + 2.6, 5.4, z - 2.4);
-  b.box(1.0, 1.0, 1.0, '#a8743f', x + 2.4, 3.95, z + 2.0, { r: 0.04 });
+  bb.box(5.2, 3.0, 6.4, concrete, x + 1.2, 1.5, z, { r: 0.15 });
+  bb.box(5.8, 0.5, 7.0, shade(concrete, -0.1), x + 1.2, 3.2, z, { r: 0.1 });
+  bb.box(0.2, 0.5, 3.6, '#16181b', x - 1.42, 2.1, z);
+  bb.box(0.15, 1.8, 1.4, '#3b2f22', x - 1.42, 0.9, z + 2.0);
+  // roof extras: radio mast + crates
+  bb.cyl(0.08, 0.08, 4, '#2a2a2a', x + 2.6, 5.4, z - 2.4);
+  bb.box(1.0, 1.0, 1.0, '#a8743f', x + 2.4, 3.95, z + 2.0, { r: 0.04 });
   // sandbag wall in front (arc)
   for (let row = 0; row < 2; row++) {
     for (let i = -5; i <= 5; i++) {
@@ -147,8 +152,8 @@ function buildBase(b, theme, x, z) {
   b.box(0.05, 0.05, 8, '#9a9a9a', x - 5.6, 1.1, z);
   b.box(0.05, 0.05, 8, '#9a9a9a', x - 5.6, 0.7, z);
   // flag pole
-  b.cyl(0.1, 0.1, 6, '#d8d8d8', x - 0.4, 6.2, z - 2.6);
-  b.sphere(0.2, '#e2c04f', x - 0.4, 9.25, z - 2.6);
+  bb.cyl(0.1, 0.1, 6, '#d8d8d8', x - 0.4, 6.2, z - 2.6);
+  bb.sphere(0.2, '#e2c04f', x - 0.4, 9.25, z - 2.6);
   const flagGeo = new THREE.PlaneGeometry(2.4, 1.5, 8, 2);
   flagGeo.translate(1.2, 0, 0);
   const tex = flagTexture();
@@ -156,7 +161,11 @@ function buildBase(b, theme, x, z) {
   flag.position.set(x - 0.4, 8.4, z - 2.6);
   flag.castShadow = true;
   flag.userData.base = flagGeo.attributes.position.array.slice();
-  return { flag };
+  const group = new THREE.Group();
+  const mesh = bb.build();
+  mesh.children.forEach((m) => { m.receiveShadow = true; });
+  group.add(mesh, flag);
+  return { flag, group };
 }
 
 function flagTexture() {

@@ -1,8 +1,6 @@
 // Tower simulation (pure logic, no rendering).
 import { TOWERS, STAT_DEFAULTS } from '../config/towers.js';
-import { findSentrySpot } from './sentry.js';
-
-let nextId = 1;
+import { findSentrySpot, sentrySpotFree } from './sentry.js';
 
 export const TARGETING = ['first', 'last', 'strong', 'close'];
 export const TARGETING_LABEL = { first: 'First', last: 'Last', strong: 'Strong', close: 'Close' };
@@ -62,13 +60,15 @@ export function computeStats(type, level) {
 export class Tower {
   constructor(game, type, x, z) {
     const def = TOWERS[type];
-    this.id = nextId++;
+    this.id = game.newId();
     this.game = game;
     this.type = type;
     this.def = def;
     this.x = x; this.z = z;
     this.level = 0;
     this.spent = def.cost;
+    // Placed between waves: selling it before the next wave starts refunds everything.
+    this.refundable = !game.waveInProgress;
     this.footprint = def.footprint || 1.5;
     this.angle = Math.atan2(game.center.x - x, game.center.z - z);
     this.targeting = null;
@@ -98,7 +98,7 @@ export class Tower {
   get maxLevel() { return (this.def.upgrades || []).length; }
   get nextUpgrade() { return (this.def.upgrades || [])[this.level] || null; }
   get range() { return this.stats.range * this.buff.rangeMult; }
-  get sellValue() { return Math.floor(this.spent * (this.def.sellRate ?? 0.7)); }
+  get sellValue() { return this.refundable ? this.spent : Math.floor(this.spent * (this.def.sellRate ?? 0.7)); }
   get isBuilder() { return !!this.stats.scrapMax; }
   get sentryCount() { return this.game.sentriesOf(this); }
 
@@ -108,9 +108,14 @@ export class Tower {
     if (this.buildTimer > 0) {
       this.buildTimer -= dt;
       if (this.buildTimer <= 0 && this.buildSpot) {
-        this.game.addSentry(this, this.buildSpot.x, this.buildSpot.z);
-        this.scrap = 0;
+        const spot = this.buildSpot;
         this.buildSpot = null;
+        // A tower may have been put on the spot while we were building; if so,
+        // the next update picks a new spot.
+        if (sentrySpotFree(this.game, spot.x, spot.z)) {
+          this.game.addSentry(this, spot.x, spot.z);
+          this.scrap = 0;
+        }
       }
       return true;
     }
@@ -131,14 +136,32 @@ export class Tower {
     if (this.buff.rally) c *= 0.5;
     return c;
   }
+  /**
+   * Damage per second at full speed (spin-up towers: once fully spun up).
+   * Chain towers count every arc, cluster grenades count their bomblets, and
+   * burn adds its damage per second.
+   */
   get dps() {
     const s = this.stats;
     if (s.attack === 'none') return 0;
     const cd = this.effectiveCooldown;
     let per = s.damage;
     if (s.attack === 'spread') per *= s.pellets;
-    if (s.burst > 1) return (per * s.burst) / Math.max(cd, s.burstDelay * (s.burst - 1));
-    return per / cd;
+    if (s.attack === 'chain') { per = 0; for (let i = 0, d = s.damage; i <= s.chains; i++, d *= s.chainFalloff) per += d; }
+    if (s.attack === 'splash' && s.cluster) per += s.cluster * s.damage * 0.5;
+    let dps = s.burst > 1 ? (per * s.burst) / Math.max(cd, s.burstDelay * (s.burst - 1)) : per / cd;
+    if (s.burnDamage) dps += s.burnDamage;
+    return dps;
+  }
+
+  /** Short note on what the DPS figure covers (shown in the inspector). */
+  get dpsNote() {
+    const a = this.stats.attack;
+    if (a === 'chain') return 'all arcs';
+    if (a === 'flame' || a === 'splash') return 'each zombie';
+    if (a === 'spread') return 'all pellets';
+    if (a === 'spinup') return 'spun up';
+    return '';
   }
 
   stun(t) {
@@ -276,9 +299,13 @@ export class Tower {
       if (Math.abs(d) <= half || e === target) hits.push(e);
     }
     hits.sort((a, b) => ((a.x - this.x) ** 2 + (a.z - this.z) ** 2) - ((b.x - this.x) ** 2 + (b.z - this.z) ** 2));
+    // Pellets are shared round-robin between the zombies in the cone. Once one
+    // dies, its remaining pellets go to the zombies still standing.
     const struck = [];
+    let live = hits, k = 0;
     for (let p = 0; p < s.pellets; p++) {
-      const e = hits[p % hits.length];
+      if (!live[k % live.length].alive) { live = live.filter((e) => e.alive); if (!live.length) break; }
+      const e = live[k++ % live.length];
       struck.push({ x: e.x, z: e.z });
       this.applyHit(e);
     }
@@ -302,8 +329,9 @@ export class Tower {
     // Lead the target: guess where it'll be when the grenade lands.
     const dist = Math.hypot(target.x - this.x, target.z - this.z);
     const flight = Math.max(0.35, dist / s.projectileSpeed);
-    const p = target.path.at(Math.min(target.path.length, target.dist + target.speed * flight * 0.9));
-    const tx = p.x - p.dz * target.lane, tz = p.z + p.dx * target.lane;
+    const lead = Math.min(target.path.length, target.dist + target.speed * flight * 0.9);
+    const p = target.path.laneAt(lead, target.laneAt(lead));
+    const tx = p.x, tz = p.z;
     this.game.addProjectile({
       kind: 'grenade', tower: this, sx: this.x, sz: this.z, tx, tz, x: this.x, z: this.z,
       t: 0, duration: flight, damage: s.damage,
@@ -314,15 +342,22 @@ export class Tower {
     const s = this.stats;
     const aim = Math.atan2(target.x - this.x, target.z - this.z);
     const half = (s.coneAngle * Math.PI) / 360;
-    let n = 0;
+    // Burn the closest zombies in the cone first. Fire-immune zombies don't use
+    // up the hit cap, so they can't shield the zombies behind them.
+    const inCone = [];
     for (const e of this.game.enemies) {
-      if (n >= s.maxHits) break;
       if (!this.canSee(e) || !this.inRange(e)) continue;
       let d = Math.atan2(e.x - this.x, e.z - this.z) - aim;
       d = Math.atan2(Math.sin(d), Math.cos(d));
       if (Math.abs(d) > half && e !== target) continue;
-      n++;
+      inCone.push([(e.x - this.x) ** 2 + (e.z - this.z) ** 2, e]);
+    }
+    inCone.sort((a, b) => a[0] - b[0]);
+    let n = 0;
+    for (const [, e] of inCone) {
+      if (n >= s.maxHits) break;
       if (e.immune.has('burn')) { this.game.emit('immune', { enemy: e }); continue; }
+      n++;
       this.applyHit(e);
     }
     this.game.emit('flame', { tower: this, angle: aim, range: this.range, cone: s.coneAngle, color: s.flameColor });

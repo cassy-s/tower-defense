@@ -1,13 +1,11 @@
 // Zombie simulation (pure logic, no rendering).
 import { ENEMIES, MODIFIERS } from '../config/enemies.js';
 
-let nextId = 1;
-
 export class Enemy {
   constructor(game, type, { pathIndex = 0, dist = 0, mods = [], wave = 0, hpScale = 1 } = {}) {
     const def = ENEMIES[type];
     if (!def) throw new Error(`Unknown enemy type "${type}"`);
-    this.id = nextId++;
+    this.id = game.newId();
     this.game = game;
     this.type = type;
     this.def = def;
@@ -50,6 +48,7 @@ export class Enemy {
     this.abilityTimers = (def.abilities || []).map((a) => (a.every ? a.every * (0.5 + game.rng() * 0.5) : 0));
     this.x = 0; this.z = 0; this.dx = 1; this.dz = 0;
     this.updatePosition();
+    this.savePrev();
   }
 
   get remaining() { return this.path.length - this.dist; }
@@ -59,15 +58,21 @@ export class Enemy {
     return s;
   }
 
+  /** Sideways offset from the road's centre line at distance d (with a gentle wander so crowds spread out). */
+  laneAt(d = this.dist) {
+    return this.boss ? 0 : Math.max(-1.5, Math.min(1.5, this.lane + Math.sin(d * 0.35 + this.laneSeed) * 0.3));
+  }
+
   updatePosition() {
-    const p = this.path.at(this.dist, this._p || (this._p = {}));
-    // Lateral lane offset, perpendicular to the path direction.
-    // Lateral lane offset (with a gentle wander so crowds spread out).
-    const lane = this.boss ? 0 : Math.max(-1.5, Math.min(1.5, this.lane + Math.sin(this.dist * 0.35 + this.laneSeed) * 0.3));
-    this.x = p.x - p.dz * lane;
-    this.z = p.z + p.dx * lane;
+    // The path blends the sideways direction around corners, so the offset
+    // point moves smoothly instead of jumping when the road turns.
+    const p = this.path.laneAt(this.dist, this.laneAt(), this._p || (this._p = {}));
+    this.x = p.x; this.z = p.z;
     this.dx = p.dx; this.dz = p.dz;
   }
+
+  /** Remember where we were before this simulation step (the view interpolates). */
+  savePrev() { this.px = this.x; this.pz = this.z; }
 
   /** Apply damage. Returns the HP actually removed. */
   damage(amount, { armorPierce = 0, source = null, bossMult = 1 } = {}) {

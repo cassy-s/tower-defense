@@ -41,7 +41,9 @@ export class UI {
     click('#btn-codex', () => this.showScreen('codex'));
     click('#btn-settings-title', () => this.openSettings(true));
     for (const b of document.querySelectorAll('[data-back]')) b.addEventListener('click', () => { this.app.sound('click'); this.showScreen(b.dataset.back); });
-    click('#btn-start', () => this.app.startGame(this.selectedMap, this.selectedDiff));
+    $('#btn-start').addEventListener('click', () => this.deploy());
+    click('#btn-continue', () => { if (this.run) this.app.startGame(null, null, this.run); });
+    $('#btn-error-reload').addEventListener('click', () => location.reload());
     for (const t of document.querySelectorAll('.tab')) t.addEventListener('click', () => { this.app.sound('click'); this.renderCodex(t.dataset.tab); });
 
     click('#btn-pause', () => this.app.setPaused(true));
@@ -54,14 +56,17 @@ export class UI {
     click('#btn-mute', () => this.app.toggleMute());
     click('#btn-go', () => this.app.goPressed());
     click('#btn-speed', () => this.app.cycleSpeed());
-    $('#chk-auto').addEventListener('change', (e) => this.app.setAuto(e.target.checked));
+    // Give the keyboard back to the game once a control has done its job, so
+    // Space starts the wave (instead of toggling AUTO) and Escape works.
+    $('#chk-auto').addEventListener('change', (e) => { this.app.setAuto(e.target.checked); e.target.blur(); });
 
     const vol = $('#set-volume');
     vol.value = this.app.settings.volume;
     vol.addEventListener('input', () => this.app.setVolume(+vol.value));
+    vol.addEventListener('change', () => vol.blur());
     const q = $('#set-quality');
     q.value = this.app.settings.quality;
-    q.addEventListener('change', () => this.app.setQuality(q.value));
+    q.addEventListener('change', () => { this.app.setQuality(q.value); q.blur(); });
   }
 
   openSettings(fromTitle) {
@@ -149,6 +154,7 @@ export class UI {
   bindGame(game) {
     this.game = game;
     this.cache = {};
+    this.bossGroup = null;
     $('#hud-wave-max').textContent = `/ ${game.maxWaves}`;
     $('#chk-auto').checked = game.autoStart;
     this.closeInspector();
@@ -202,6 +208,7 @@ export class UI {
     tip.innerHTML = `<div class="tip-head"><b>${t.name}</b><span class="tip-price">$${fmt(t.cost)}</span><span class="role role-${ROLE_COLOR[t.role]}">${t.role}</span></div>
       <p>${t.description}</p>
       <div class="tip-stats">${statLine(s)}</div>
+      ${s.attack !== 'none' || s.aura ? rangeMap(s.range) : ''}
       ${t.limit ? `<div class="tip-limit">Limit: ${t.limit} per game</div>` : ''}`;
     tip.classList.remove('hidden');
     const r = anchor.getBoundingClientRect();
@@ -232,26 +239,34 @@ export class UI {
   }
 
   // ---------------------------------------------------------- inspector ---
-  openInspector(t) {
+  // The panel is built once per tower and level. After that, update() only
+  // changes text, classes and widths, so buttons are never replaced under the
+  // cursor (a click needs press and release on the same element). UPGRADE and
+  // SELL sit right under the header, so they stay in the same place as the
+  // rest of the panel changes.
+  openInspector(t, side = 'left') {
     this.inspected = t;
-    $('#inspector').classList.remove('hidden');
+    const el = $('#inspector');
+    el.classList.remove('hidden');
+    el.classList.toggle('right', side === 'right');
     this.renderInspector(true);
   }
-  closeInspector() { this.inspected = null; $('#inspector').classList.add('hidden'); }
+  closeInspector() { this.inspected = null; this.insp = null; $('#inspector').classList.add('hidden'); }
 
   renderInspector(full = false) {
     const t = this.inspected;
     if (!t) return;
+    const key = `${t.id}|${t.level}`;
+    if (full || !this.insp || this.insp.key !== key) this.buildInspector(t, key);
+    this.refreshInspector(t);
+  }
+
+  buildInspector(t, key) {
     const el = $('#inspector');
     const s = t.stats;
     const next = t.nextUpgrade;
-    const key = `${t.id}|${t.level}|${t.targeting}|${Math.floor(this.game.cash >= (next?.cost ?? Infinity))}|${t.kills}|${Math.floor(t.damageDealt)}|${Math.ceil(t.abilityTimer)}|${t.buff.cooldownMult}|${t.buff.grantHidden}|${t.stunTimer > 0}|${s.scrapMax ? Math.floor((t.scrap / s.scrapMax) * 20) + '/' + t.sentryCount : ''}`;
-    if (!full && key === this.inspKey) return;
-    this.inspKey = key;
     const ability = s.ability ? ABILITIES[s.ability] : null;
-    let diff = '';
-    if (next) diff = statDiff(computeStats(t.type, t.level).stats, computeStats(t.type, t.level + 1).stats);
-    const afford = next && this.game.cash >= next.cost;
+    const diff = next ? statDiff(computeStats(t.type, t.level).stats, computeStats(t.type, t.level + 1).stats) : '';
     el.innerHTML = `
       <div class="insp-head role-${ROLE_COLOR[t.def.role]}">
         <img alt="" src="${this.app.portraits.tower(t.type, t.level)}">
@@ -259,28 +274,88 @@ export class UI {
           <div class="pips">${t.def.upgrades.map((u, i) => `<i class="${i < t.level ? 'on' : ''}" title="${u.name}"></i>`).join('')}</div>
           <small>${t.level ? t.def.upgrades[t.level - 1].name : 'Level 0'}</small>
         </div>
-        <button class="icon-btn small" id="insp-close" title="Close (Esc)">${ICONS.close}</button>
+        <button class="icon-btn small" data-r="close" title="Close (Esc)" aria-label="Close">${ICONS.close}</button>
+        <div class="insp-stun hidden" data-r="stun">STUNNED!</div>
       </div>
-      ${t.stunTimer > 0 ? '<div class="insp-stun">STUNNED!</div>' : ''}
-      <div class="insp-stats">${statGrid(t)}</div>
-      <div class="insp-record"><span>${icon('skull')} <b>${fmt(t.kills)}</b> kills</span><span>${icon('sword')} <b>${fmt(t.damageDealt)}</b> dmg</span></div>
-      ${s.attack !== 'none' ? `<div class="insp-target"><span>TARGET</span><button class="tbtn" id="tg-prev">‹</button><b>${TARGETING_LABEL[t.targeting]}</b><button class="tbtn" id="tg-next">›</button></div>` : ''}
-      ${ability ? `<button class="btn btn-gold ability-btn" id="insp-ability" ${t.abilityTimer > 0 ? 'disabled' : ''}>${icon('star')} ${ability.name.toUpperCase()} ${t.abilityTimer > 0 ? `<small>${Math.ceil(t.abilityTimer)}s</small>` : '<small>READY</small>'}</button>` : ''}
+      <div class="insp-actions">
+        ${next
+          ? `<button class="btn up-btn" data-r="up" title="Upgrade (U)">${icon('up')} UPGRADE <span>$${fmt(next.cost)}</span></button>`
+          : `<div class="maxed-pill">${icon('star')} MAX LEVEL</div>`}
+        <button class="btn btn-red sell-btn" data-r="sell" title="Sell (Del, press twice)">SELL <span data-r="sellv"></span></button>
+      </div>
       ${next ? `
-        <div class="upgrade-card ${afford ? '' : 'poor'}">
+        <div class="upgrade-card" data-r="card">
           <div class="up-top"><small>NEXT UPGRADE · ${t.level + 1}/${t.maxLevel}</small><b>${next.name}</b></div>
           <p>${next.desc}</p>
           ${diff ? `<div class="up-diff">${diff}</div>` : ''}
-          <button class="btn ${afford ? 'btn-green' : 'btn-disabled'} up-btn" id="insp-upgrade">${icon('up')} UPGRADE <span>$${fmt(next.cost)}</span></button>
-        </div>` : `<div class="upgrade-card maxed"><b>${icon('star')} FULLY UPGRADED</b></div>`}
-      <button class="btn btn-red sell-btn" id="insp-sell">SELL <span>$${fmt(t.sellValue)}</span></button>`;
-    el.querySelector('#insp-close').onclick = () => this.app.select(null);
-    const up = el.querySelector('#insp-upgrade'); if (up) up.onclick = () => this.app.upgradeSelected();
-    el.querySelector('#insp-sell').onclick = () => this.app.sellSelected();
-    const ab = el.querySelector('#insp-ability'); if (ab) ab.onclick = () => this.app.useAbility();
-    const prev = el.querySelector('#tg-prev'), nxt = el.querySelector('#tg-next');
-    if (prev) prev.onclick = () => this.app.cycleTargeting(-1);
-    if (nxt) nxt.onclick = () => this.app.cycleTargeting(1);
+        </div>` : ''}
+      ${ability ? `<button class="btn btn-gold ability-btn" data-r="ability" title="${ability.desc}">${icon('star')} ${ability.name.toUpperCase()} <small data-r="abstate"></small><kbd>Q</kbd></button>` : ''}
+      ${s.attack !== 'none' ? `<div class="insp-target"><span>TARGET <kbd>T</kbd></span><button class="tbtn" data-r="tprev" aria-label="Previous targeting">‹</button><b data-r="target"></b><button class="tbtn" data-r="tnext" aria-label="Next targeting">›</button></div>` : ''}
+      <div class="insp-stats" data-r="stats"></div>
+      ${s.scrapMax ? `<div class="scrap"><i data-r="scrapbar"></i><span data-r="scraptext"></span></div><div class="chips" data-r="builder"></div>` : ''}
+      <div class="insp-record"><span>${icon('skull')} <b data-r="kills"></b> kills</span><span>${icon('sword')} <b data-r="dmg"></b> dmg</span></div>`;
+    const r = {};
+    for (const n of el.querySelectorAll('[data-r]')) r[n.dataset.r] = n;
+    r.close.onclick = () => this.app.select(null);
+    if (r.up) r.up.onclick = () => this.app.upgradeSelected();
+    r.sell.onclick = () => this.app.sellSelected();
+    if (r.ability) r.ability.onclick = () => this.app.useAbility();
+    if (r.tprev) r.tprev.onclick = () => this.app.cycleTargeting(-1);
+    if (r.tnext) r.tnext.onclick = () => this.app.cycleTargeting(1);
+    this.insp = { key, r, cache: {} };
+  }
+
+  /** Cheap per-frame update: only touches what changed. */
+  refreshInspector(t) {
+    const { r, cache } = this.insp;
+    const s = t.stats;
+    const text = (k, v) => { if (cache[k] !== v) { cache[k] = v; r[k].textContent = v; } };
+    const html = (k, v) => { if (cache[k] !== v) { cache[k] = v; r[k].innerHTML = v; } };
+    const next = t.nextUpgrade;
+    if (r.up) {
+      const afford = this.game.cash >= next.cost;
+      if (cache.afford !== afford) {
+        cache.afford = afford;
+        r.up.classList.toggle('btn-green', afford); r.up.classList.toggle('btn-disabled', !afford);
+        r.card.classList.toggle('poor', !afford);
+      }
+    }
+    text('sellv', `$${fmt(t.sellValue)}${t.refundable ? ' · FULL' : ''}`);
+    const stunned = t.stunTimer > 0;
+    if (cache.stun !== stunned) { cache.stun = stunned; r.stun.classList.toggle('hidden', !stunned); }
+    if (r.ability) {
+      const wait = Math.ceil(t.abilityTimer);
+      const off = t.abilityTimer > 0 || stunned;
+      if (cache.abOff !== off) { cache.abOff = off; r.ability.disabled = off; }
+      text('abstate', stunned ? 'STUNNED' : t.abilityTimer > 0 ? `${wait}s` : 'READY');
+    }
+    if (r.target) text('target', TARGETING_LABEL[t.targeting]);
+    html('stats', statGrid(t));
+    if (r.scrapbar) {
+      const pct = Math.min(100, (t.scrap / s.scrapMax) * 100);
+      const w = `${pct.toFixed(1)}%`;
+      if (cache.scrapW !== w) { cache.scrapW = w; r.scrapbar.style.width = w; }
+      text('scraptext', `SCRAP ${Math.floor(t.scrap)}/${s.scrapMax}`);
+      html('builder', builderChips(t));
+    }
+    text('kills', fmt(t.kills));
+    text('dmg', fmt(t.damageDealt));
+  }
+
+  // ----------------------------------------------------------- continue ---
+  showContinue(run) {
+    const b = $('#btn-continue');
+    if (!run || !MAPS[run.mapId] || !DIFFICULTIES[run.difficulty]) { b.classList.add('hidden'); this.run = null; return; }
+    this.run = run;
+    b.innerHTML = `CONTINUE <small>${MAPS[run.mapId].name} · ${DIFFICULTIES[run.difficulty].name} · wave ${run.wave}</small>`;
+    b.classList.remove('hidden');
+  }
+
+  deploy() { this.app.sound('click'); this.app.startGame(this.selectedMap, this.selectedDiff); }
+
+  showError(err) {
+    $('#error-text').textContent = String(err?.message || err);
+    $('#modal-error').classList.remove('hidden');
   }
 
   // ------------------------------------------------------------- frame ----
@@ -318,18 +393,37 @@ export class UI {
     }
     set('speed', '#btn-speed', `${this.app.speed}x`);
 
-    // Boss bar
-    const boss = g.enemies.find((e) => e.boss && e.alive);
-    const bb = $('#boss-bar');
-    if (!!boss !== c.boss) { c.boss = !!boss; bb.classList.toggle('hidden', !boss); }
-    if (boss) {
-      set('bossName', '#boss-name', boss.def.name.toUpperCase() + (boss.enraged ? ' — ENRAGED' : ''));
-      $('#boss-fill').style.width = `${(boss.hp / boss.maxHp) * 100}%`;
-      $('#boss-shield').style.width = boss.maxShield ? `${(boss.shield / boss.maxShield) * 100}%` : '0';
-    }
+    this.updateBossBar(g, set);
 
     if (this.inspected) this.renderInspector(false);
     this.updateToasts();
+  }
+
+  /**
+   * One bar for every boss on the field. The group is remembered until all of
+   * them are dead, so killing one of two bosses doesn't make the bar jump back
+   * up: dead bosses still count, at zero health.
+   */
+  updateBossBar(g, set) {
+    const c = this.cache;
+    const group = (this.bossGroup ||= new Set());
+    for (const e of g.enemies) if (e.boss && e.alive) group.add(e);
+    const alive = [...group].filter((e) => e.alive);
+    if (!alive.length) group.clear();
+    const on = alive.length > 0;
+    if (on !== c.boss) { c.boss = on; $('#boss-bar').classList.toggle('hidden', !on); }
+    if (!on) return;
+    let hp = 0, max = 0, sh = 0, shMax = 0;
+    for (const e of group) { if (e.alive) { hp += e.hp; sh += e.shield; } max += e.maxHp; shMax += e.maxShield; }
+    const names = [...new Set([...group].map((e) => e.def.name.toUpperCase()))];
+    let name = names.length === 1 ? names[0] : names.join(' + ');
+    if (group.size > names.length) name += ` ×${group.size}`;
+    if (alive.length < group.size) name += ` (${alive.length} left)`;
+    if (alive.some((e) => e.enraged)) name += ' — ENRAGED';
+    set('bossName', '#boss-name', name);
+    const fill = `${((hp / max) * 100).toFixed(1)}%`, shield = shMax ? `${((sh / shMax) * 100).toFixed(1)}%` : '0';
+    if (c.bossFill !== fill) { c.bossFill = fill; $('#boss-fill').style.width = fill; }
+    if (c.bossShield !== shield) { c.bossShield = shield; $('#boss-shield').style.width = shield; }
   }
 
   // ------------------------------------------------------------ toasts ----
@@ -375,14 +469,16 @@ export class UI {
     $('#end-sub').textContent = won
       ? `${MAPS[game.mapId].name} on ${game.difficulty.name} — the bunker held.`
       : `The horde broke through on wave ${game.wave} of ${game.maxWaves}.`;
-    const best = Math.max(0, ...game.towers.map((t) => t.kills));
-    const mvp = game.towers.find((t) => t.kills === best);
+    // Sold towers still count. No MVP if nothing killed anything.
+    const all = [...game.towers, ...game.retired];
+    const best = Math.max(0, ...all.map((t) => t.kills));
+    const mvp = best > 0 ? all.find((t) => t.kills === best) : null;
     $('#end-stats').innerHTML = `
       <div><span>Waves</span><b>${game.wave} / ${game.maxWaves}</b></div>
       <div><span>Zombies killed</span><b>${fmt(game.stats.kills)}</b></div>
       <div><span>Cash earned</span><b>$${fmt(game.stats.earned)}</b></div>
       <div><span>Towers built</span><b>${game.stats.built}</b></div>
-      ${mvp ? `<div class="mvp"><img src="${this.app.portraits.tower(mvp.type, mvp.level)}" alt=""><span>MVP</span><b>${mvp.def.name} · ${fmt(mvp.kills)} kills</b></div>` : ''}`;
+      ${mvp ? `<div class="mvp"><img src="${this.app.portraits.tower(mvp.type, mvp.level)}" alt=""><span>MVP</span><b>${mvp.def.name} · ${fmt(mvp.kills)} kills${game.towers.includes(mvp) ? '' : ' (sold)'}</b></div>` : ''}`;
   }
 }
 
@@ -430,44 +526,62 @@ function statGrid(t) {
   const s = t.stats;
   if (s.attack === 'none') return `<div class="sg"><span>${icon('coin')} Income</span><b>$${s.income}/wave</b></div>${traitChips(s, t.buff) ? `<div class="chips">${traitChips(s, t.buff)}</div>` : ''}`;
   const dmg = `${s.damage}${s.attack === 'spread' ? ' ×' + s.pellets : ''}${s.burst > 1 ? ' ×' + s.burst : ''}`;
+  const note = t.dpsNote;
   return `
     <div class="sg"><span>${icon('target')} Damage</span><b>${dmg}</b></div>
-    <div class="sg"><span>${icon('clock')} Fire rate</span><b>${(1 / t.effectiveCooldown).toFixed(2)}/s</b></div>
+    <div class="sg"><span>${icon('clock')} Fire rate${s.attack === 'spinup' ? ' (max)' : ''}</span><b>${(1 / t.effectiveCooldown).toFixed(2)}/s</b></div>
     <div class="sg"><span>${icon('range')} Range</span><b>${+t.range.toFixed(1)}</b></div>
-    <div class="sg"><span>${icon('sword')} DPS</span><b>${t.dps.toFixed(1)}</b></div>
-    ${s.scrapMax ? builderInfo(t) : ''}
+    <div class="sg"><span>${icon('sword')} DPS${note ? ` <small>(${note})</small>` : ''}</span><b>${t.dps.toFixed(1)}</b></div>
     <div class="chips">${traitChips(s, t.buff)}</div>`;
 }
 
-function builderInfo(t) {
+function builderChips(t) {
   const s = t.stats, u = s.unit || {};
-  const pct = Math.min(100, (t.scrap / s.scrapMax) * 100);
-  return `<div class="scrap"><i style="width:${pct}%"></i><span>SCRAP ${Math.floor(t.scrap)}/${s.scrapMax}</span></div>
-    <div class="chips"><i class="chip gold">Sentries ${t.sentryCount}/${s.maxUnits}</i><i class="chip">Sentry ${u.damage} dmg · ${(1 / u.cooldown).toFixed(1)}/s · ${u.lifespan}s</i>${u.shield ? '<i class="chip sky">Shielded</i>' : ''}${u.rocket ? `<i class="chip red">Rockets ${u.rocket.damage}×${u.rocket.count}</i>` : ''}</div>`;
+  return `<i class="chip gold">Sentries ${t.sentryCount}/${s.maxUnits}</i><i class="chip">Sentry ${u.damage} dmg · ${(1 / u.cooldown).toFixed(1)}/s · ${u.lifespan}s</i>${u.hidden ? '<i class="chip purple">Sees hidden</i>' : ''}${u.shield ? '<i class="chip sky">Shielded</i>' : ''}${u.rocket ? `<i class="chip red">Rockets ${u.rocket.damage}×${u.rocket.count}</i>` : ''}<i class="chip muted-chip" title="Upgrading improves the sentries built after the upgrade.">Sentries keep the level they were built at</i>`;
 }
 
 const DIFF_LABEL = {
   damage: 'Damage', cooldown: 'Fire rate', range: 'Range', pierce: 'Pierce', pellets: 'Pellets', burst: 'Burst', splashRadius: 'Blast radius',
-  maxHits: 'Max hits', chains: 'Chains', burnDamage: 'Burn', burnDuration: 'Burn time', armorPierce: 'Armor pierce', income: 'Income', spinUp: 'Spin-up',
+  maxHits: 'Max hits', chains: 'Chain jumps', burnDamage: 'Burn', burnDuration: 'Burn time', armorPierce: 'Armor pierce', income: 'Income', spinUp: 'Spin-up',
   coneAngle: 'Cone', cluster: 'Cluster', bossMult: 'Boss damage', projectileSize: 'Bolt size',
-  maxUnits: 'Max sentries', buildRange: 'Build range',
+  maxUnits: 'Max sentries', buildRange: 'Build range', scrapMax: 'Scrap per sentry', deadzone: 'Dead zone',
+  chainFalloff: 'Damage kept per jump',
 };
+const UNIT_LABEL = { damage: 'Sentry damage', cooldown: 'Sentry fire rate', range: 'Sentry range', health: 'Sentry health', lifespan: 'Sentry lifespan' };
+function fmtDiff(k, v) {
+  if (k === 'cooldown') return (1 / v).toFixed(2) + '/s';
+  if (k === 'armorPierce' || k === 'chainFalloff') return Math.round(v * 100) + '%';
+  if (k === 'income') return '$' + v;
+  if (k === 'spinUp' || k === 'lifespan') return v + 's';
+  return v;
+}
 function statDiff(a, b) {
   const out = [];
+  const line = (label, from, to) => out.push(`<span><em>${label}</em> ${from} → <b>${to}</b></span>`);
   for (const k of Object.keys(DIFF_LABEL)) {
     if (a[k] === b[k] || b[k] === undefined) continue;
-    let from = a[k], to = b[k];
-    if (k === 'cooldown') { from = (1 / from).toFixed(2) + '/s'; to = (1 / to).toFixed(2) + '/s'; }
-    else if (k === 'armorPierce') { from = Math.round(from * 100) + '%'; to = Math.round(to * 100) + '%'; }
-    else if (k === 'income') { from = '$' + from; to = '$' + to; }
-    else if (k === 'spinUp') { from = from + 's'; to = to + 's'; }
-    out.push(`<span><em>${DIFF_LABEL[k]}</em> ${from} → <b>${to}</b></span>`);
+    line(DIFF_LABEL[k], fmtDiff(k, a[k]), fmtDiff(k, b[k]));
   }
   if (!a.detectHidden && b.detectHidden) out.push('<span><b>+ Sees hidden</b></span>');
   if (!a.detectFlying && b.detectFlying) out.push('<span><b>+ Hits flying</b></span>');
   if (!a.ability && b.ability) out.push(`<span><b>+ ${ABILITIES[b.ability].name} ability</b></span>`);
   if (JSON.stringify(a.aura) !== JSON.stringify(b.aura) && b.aura) out.push('<span><b>Stronger aura</b></span>');
+  // Builder towers: most of an upgrade's effect is on the sentries.
+  const ua = a.unit || {}, ub = b.unit || {};
+  for (const k of Object.keys(UNIT_LABEL)) {
+    if (ub[k] === undefined || ua[k] === ub[k]) continue;
+    line(UNIT_LABEL[k], ua[k] === undefined ? '–' : fmtDiff(k, ua[k]), fmtDiff(k, ub[k]));
+  }
+  if (!ua.hidden && ub.hidden) out.push('<span><b>+ Sentries see hidden</b></span>');
+  if (!ua.shield && ub.shield) out.push('<span><b>+ Sentry shield (stun immune)</b></span>');
+  if (!ua.rocket && ub.rocket) out.push(`<span><b>+ Sentry rockets ${ub.rocket.damage}×${ub.rocket.count}</b></span>`);
   return out.join('');
+}
+
+/** Tiny map with the tower's range drawn to scale, for the shop tooltip. */
+function rangeMap(range) {
+  const W = 64, H = 40;
+  return `<div class="tip-range"><svg viewBox="0 0 ${W} ${H}" aria-hidden="true"><rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" rx="2"/><circle cx="${W / 2}" cy="${H / 2}" r="${range}"/><circle class="dot" cx="${W / 2}" cy="${H / 2}" r="1"/></svg><span>Range ${range} on a ${W}-stud-wide map</span></div>`;
 }
 
 export { TARGETING };
