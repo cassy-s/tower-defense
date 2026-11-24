@@ -1,7 +1,8 @@
 // Entry point: wires the simulation, the 3D view and the UI together and
 // runs the main loop.
-import { Game } from './game/game.js';
+import { Game, CMD, snapCoord } from './game/game.js';
 import { TARGETING } from './game/tower.js';
+import { ReplayPlayer, makeReplay, liveSegment, startOf, resultOf, sameResult, encodeReplay, decodeReplay } from './game/replay.js';
 import { View } from './render/view.js';
 import { Portraits } from './render/portraits.js';
 import { UI } from './ui/ui.js';
@@ -17,6 +18,9 @@ const STEP = 1 / 60;
 const MAX_FRAME = 0.25;              // longest real frame we try to catch up on (seconds)
 const SELL_CONFIRM_MS = 1800;
 const RESUME_AUTO_DELAY = 5;         // seconds before AUTO sends the first wave after CONTINUE
+const REPLAY_KEY = 'blockade.replay.last';
+const REPLAY_SPEEDS = [1, 2, 4, 8];
+const SKIP_BUDGET_MS = 12;           // time per frame spent fast-forwarding a replay
 
 class App {
   constructor() {
@@ -24,8 +28,8 @@ class App {
     this.settings = this.save.settings;
     this.canvas = document.getElementById('scene');
     this.view = new View(this.canvas, document.getElementById('fx-layer'));
-    // Only the real game makes noise: the title screen's background battle is silent.
-    this.view.onSound = (n) => { if (this.mode === 'game') audio.play(n); };
+    // Only the real game (and a replay at watchable speed) makes noise: the title screen's background battle is silent.
+    this.view.onSound = (n) => { if (!this.quiet) audio.play(n); };
     this.portraits = new Portraits();
     this.ui = new UI(this);
     this.speed = 1;
@@ -66,11 +70,30 @@ class App {
   saveRun() {
     const g = this.game;
     if (this.mode !== 'game' || !g || !g.canSave) return false;
-    try { localStorage.setItem(RUN_KEY, JSON.stringify(g.serialize())); } catch { return false; }
+    const data = g.serialize();
+    data.replay = this.currentReplay();
+    try { localStorage.setItem(RUN_KEY, JSON.stringify(data)); } catch { return false; }
     this.runDirty = false;
     return true;
   }
   clearRun() { try { localStorage.removeItem(RUN_KEY); } catch { /* ignore */ } }
+
+  /** The replay of the game being played, up to now. */
+  currentReplay(result = null) {
+    const r = this.rec;
+    return makeReplay(this.game, [...r.segs, liveSegment(this.game, r.seed, r.start)], result);
+  }
+  lastReplay() {
+    try { const r = JSON.parse(localStorage.getItem(REPLAY_KEY)); return r && r.segs ? r : null; } catch { return null; }
+  }
+
+  /** Is the current game noisy? The menu's background battle and fast or skipping replays are not. */
+  get quiet() {
+    if (this.mode === 'game') return false;
+    if (this.mode !== 'replay') return true;
+    const p = this.player;
+    return !p || p.skipTo != null || p.speed > 2;
+  }
 
   // --------------------------------------------------------------- boot ---
   async boot() {
@@ -92,6 +115,7 @@ class App {
       if (i % 3 === 0) await tick();
     }
     this.startMenu();
+    this.replayFromUrl();
   }
 
   mapThumb(id) {
@@ -101,6 +125,7 @@ class App {
 
   // ------------------------------------------------------------- menu -----
   startMenu() {
+    this.endReplay();
     this.mode = 'menu';
     this.speed = 1;
     this.paused = false;
@@ -125,6 +150,7 @@ class App {
     this.ui.game = null;
     this.ui.showScreen('title');
     this.ui.showContinue(this.savedRun());
+    this.ui.showLastReplay(this.lastReplay());
   }
 
   // ------------------------------------------------------------- game -----
@@ -134,6 +160,10 @@ class App {
     const seed = Date.now() & 0xffff;
     const g = saved ? Game.fromSave(saved, { seed }) : new Game({ mapId, difficulty, seed });
     if (!g) { this.clearRun(); this.ui.showContinue(null); return; }
+    this.endReplay();
+    // Recording: earlier segments come from the save; this one starts from it (or from scratch).
+    const prev = saved?.replay;
+    this.rec = { seed, start: startOf(saved), segs: prev && prev.map === g.mapId && Array.isArray(prev.segs) ? prev.segs : [] };
     this.mode = 'game';
     this.speed = 1;
     this.paused = false;
@@ -155,7 +185,7 @@ class App {
       this.firstPlace = false;
       if (g.autoStart) {
         // AUTO stays on: give the player a moment to look around, then carry on.
-        g.autoTimer = RESUME_AUTO_DELAY;
+        g.command(CMD.delay, RESUME_AUTO_DELAY);
         this.ui.hint(`Resumed on wave <b>${g.wave}</b>. AUTO is on: the next wave starts in ${RESUME_AUTO_DELAY} seconds (<kbd>Space</kbd> sends it now).`);
       } else {
         this.ui.hint(`Resumed on wave <b>${g.wave}</b>. Press <b>START</b> (or <kbd>Space</kbd>) to send the next wave.`);
@@ -167,17 +197,16 @@ class App {
   }
 
   bindGameSounds(g) {
-    g.on('waveStart', () => audio.play('wave'));
-    g.on('waveEnd', () => audio.play('waveEnd'));
-    g.on('explode', () => audio.play('explode'));
-    g.on('towerPlaced', () => audio.play('place'));
-    g.on('towerUpgraded', () => audio.play('upgrade'));
-    g.on('towerSold', () => audio.play('sell'));
+    const sounds = { waveStart: 'wave', waveEnd: 'waveEnd', explode: 'explode', towerPlaced: 'place', towerUpgraded: 'upgrade', towerSold: 'sell' };
+    for (const ev in sounds) g.on(ev, () => { if (!this.quiet) audio.play(sounds[ev]); });
   }
 
   onGameOver(won) {
     audio.play(won ? 'win' : 'lose');
     const g = this.game;
+    // Keep the replay of the last finished game (the end screen can play or share it).
+    this.endedReplay = this.currentReplay(resultOf(g));
+    try { localStorage.setItem(REPLAY_KEY, JSON.stringify(this.endedReplay)); } catch { /* too big or no storage: still playable now */ }
     const b = (this.save.best[g.mapId] ||= {});
     const prev = b[g.difficultyId];
     if (won) b[g.difficultyId] = 'win';
@@ -190,13 +219,138 @@ class App {
     this.endTimer = setTimeout(() => { if (this.game === g && this.mode === 'game') this.ui.showEnd(won, g); }, 900);
   }
 
+  // ------------------------------------------------------------ replays ---
+  /** Watch a replay. Returns false if it can't be played. */
+  startReplay(replay) {
+    let p;
+    try { p = new ReplayPlayer(replay); } catch (err) { console.warn('[Blockade] bad replay:', err); this.ui.flash('That replay could not be loaded.', 2500); return false; }
+    audio.init();
+    clearTimeout(this.endTimer);
+    this.cancelPlacing();
+    this.select(null);
+    this.player = p;
+    p.speed = 1; p.paused = false; p.skipTo = null;
+    this.mode = 'replay';
+    this.speed = 1;
+    this.paused = false;
+    this.acc = 0;
+    document.body.classList.add('replaying');
+    this.showReplayGame();
+    this.view.zoom = 1; this.view.pan.set(0, 0);
+    this.ui.showScreen('game');
+    this.ui.showReplayBar(p);
+    this.updateInsets();
+    return true;
+  }
+
+  /** Point the view and HUD at the replay's current game (a resumed run switches games). */
+  showReplayGame() {
+    const g = this.player.game;
+    this.game = g;
+    this.view.setGame(g);
+    this.ui.bindGame(g);
+    this.bindGameSounds(g);
+  }
+
+  endReplay() {
+    if (!this.player) return;
+    this.player = null;
+    document.body.classList.remove('replaying');
+    this.ui.hideReplayBar();
+  }
+
+  exitReplay() {
+    this.endReplay();
+    document.getElementById('modal-end').classList.add('hidden');
+    this.startMenu();
+  }
+
+  replayPause(v = !this.player.paused) { this.player.paused = v; this.ui.updateReplayBar(this.player, true); }
+  replaySpeed() {
+    const p = this.player, i = REPLAY_SPEEDS.indexOf(p.speed);
+    p.speed = REPLAY_SPEEDS[(i + 1) % REPLAY_SPEEDS.length];
+    this.ui.updateReplayBar(p, true);
+  }
+  /** Fast-forward to the start of the next wave (or the end). Spread over frames so the page stays responsive. */
+  replaySkip() {
+    const p = this.player;
+    if (!p || p.done) return;
+    p.skipTo = p.skipTo != null ? p.skipTo + 1 : p.game.wave + 1;
+    p.paused = false;
+    this.ui.updateReplayBar(p, true);
+  }
+
+  /** Advance the replay for one frame. */
+  stepReplay(realDt) {
+    const p = this.player;
+    if (p.paused && p.skipTo == null) return;
+    let switched = false;
+    const run = () => {
+      const r = p.step(STEP);
+      if (r === 'segment') switched = true;
+      return r;
+    };
+    if (p.skipTo != null) {
+      // Fast-forward: as many steps as fit in the time budget, nothing drawn in between.
+      const until = performance.now() + SKIP_BUDGET_MS;
+      while (performance.now() < until) {
+        if (p.done || p.game.wave >= p.skipTo) { p.skipTo = null; this.acc = 0; break; }
+        for (let i = 0; i < 30 && !p.done; i++) run();
+      }
+    } else {
+      this.acc += realDt * p.speed;
+      const maxSteps = Math.ceil((MAX_FRAME * REPLAY_SPEEDS.at(-1)) / STEP);
+      let steps = 0;
+      while (this.acc >= STEP && steps < maxSteps && !p.done) { run(); this.acc -= STEP; steps++; }
+      if (this.acc >= STEP) this.acc = STEP * 0.999;
+    }
+    if (switched) this.showReplayGame();
+    if (p.done && !p.finished) this.finishReplay();
+  }
+
+  finishReplay() {
+    const p = this.player;
+    p.finished = true;
+    p.skipTo = null;
+    const g = p.game;
+    const recorded = p.replay.result;
+    // A replay recorded on another version of the game may play out differently.
+    const differs = recorded && !sameResult(recorded, resultOf(g));
+    this.ui.updateReplayBar(p, true);
+    setTimeout(() => { if (this.player === p) this.ui.showEnd(g.state === 'won', g, { replay: true, differs }); }, 900);
+  }
+
+  /** Copies a link that plays this replay. */
+  async shareReplay(replay = this.endedReplay) {
+    if (!replay) return;
+    try {
+      const code = await encodeReplay(replay);
+      const url = `${location.origin}${location.pathname}#replay=${code}`;
+      await navigator.clipboard.writeText(url);
+      this.ui.flash(`Replay link copied (${Math.ceil(url.length / 1024)} KB). Anyone who opens it watches this game.`, 3000);
+    } catch (err) {
+      console.warn('[Blockade] share failed:', err);
+      this.ui.flash('Could not copy the replay link.', 2500);
+    }
+  }
+
+  /** Opened with #replay=...: play it once the game has loaded. */
+  async replayFromUrl() {
+    const m = /^#replay=([\w-]+)$/.exec(location.hash);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    try { this.startReplay(await decodeReplay(m[1])); } catch (err) { console.warn('[Blockade] bad replay link:', err); this.ui.flash('That replay link is broken or incomplete.', 3000); }
+  }
+
   restart() {
+    if (this.mode === 'replay') { this.startReplay(this.player.replay); return; }
     document.getElementById('modal-end').classList.add('hidden');
     document.getElementById('modal-pause').classList.add('hidden');
     if (this.lastStart) this.startGame(this.lastStart.mapId, this.lastStart.difficulty);
   }
 
   quitToMenu() {
+    if (this.mode === 'replay') { this.exitReplay(); return; }
     this.saveRun();
     document.getElementById('modal-end').classList.add('hidden');
     document.getElementById('modal-pause').classList.add('hidden');
@@ -207,12 +361,14 @@ class App {
   updateInsets() {
     const shop = document.getElementById('shop');
     const w = this.mode === 'game' && shop ? shop.getBoundingClientRect().width + 16 : 0;
+    // (A replay hides the shop, so it gets the whole screen.)
     this.view.setInsets(w, 74);
   }
 
   // ---------------------------------------------------------- controls ----
   sound(n) { audio.init(); audio.play(n); }
   setPaused(p) {
+    if (this.mode === 'replay') { this.replayPause(p); return; }
     if (this.mode !== 'game' || this.game.state !== 'playing') p = false;
     this.paused = p;
     if (p) this.ui.openSettings(false); else this.ui.closeSettings();
@@ -230,12 +386,12 @@ class App {
     this.view.resize();
   }
   cycleSpeed() { this.speed = this.speed === 1 ? 2 : this.speed === 2 ? 3 : 1; }
-  setAuto(v) { if (this.game) this.game.autoStart = v; if (v && this.game && !this.game.waveInProgress) this.game.startNextWave(); }
+  setAuto(v) { if (this.mode === 'game') this.game.command(CMD.auto, !!v); }
   goPressed() {
     const g = this.game;
     if (!g || this.mode !== 'game' || g.state !== 'playing') return;
     audio.init();
-    if (g.startNextWave()) this.ui.hint(null);
+    if (g.command(CMD.wave)) this.ui.hint(null);
   }
 
   beginPlacing(type) {
@@ -267,12 +423,12 @@ class App {
   upgradeSelected() {
     const t = this.selectedTower;
     if (!t) return;
-    if (!this.game.upgradeTower(t)) this.sound('error');
+    if (!this.game.command(CMD.upgrade, t.id)) this.sound('error');
   }
   sellSelected() {
     const t = this.selectedTower;
     if (!t) return;
-    this.game.sellTower(t);
+    this.game.command(CMD.sell, t.id);
     this.select(null);
   }
   /** Delete key: the first press asks, a second press within a moment sells. */
@@ -285,18 +441,18 @@ class App {
     this.sound('click');
     this.flashHint(`Press <kbd>Del</kbd> again to sell ${t.def.name} for <b>$${t.sellValue.toLocaleString('en-US')}</b>${t.refundable ? ' (full refund)' : ''}`, SELL_CONFIRM_MS);
   }
-  useAbility() { const t = this.selectedTower; if (t && !t.useAbility()) this.sound('error'); }
+  useAbility() { const t = this.selectedTower; if (t && !this.game.command(CMD.ability, t.id)) this.sound('error'); }
   cycleTargeting(dir) {
     const t = this.selectedTower;
     if (!t || t.stats.attack === 'none') return;
     const i = TARGETING.indexOf(t.targeting);
-    t.targeting = TARGETING[(i + dir + TARGETING.length) % TARGETING.length];
+    this.game.command(CMD.target, t.id, TARGETING[(i + dir + TARGETING.length) % TARGETING.length]);
     this.runDirty = true;
     this.sound('click');
   }
 
   updateGhost(cx, cy) {
-    const p = this.view.pick(cx, cy);
+    const p = this.pickSnapped(cx, cy);
     if (!p) return;
     const res = this.game.canPlace(this.placing, p.x, p.z);
     const buff = this.game.previewBuff(this.placing, p.x, p.z);
@@ -304,10 +460,17 @@ class App {
     this.ghostReason = res.ok ? null : res.reason;
   }
 
+  /** The map point under the cursor, snapped the way placement commands are recorded. */
+  pickSnapped(cx, cy) {
+    const p = this.view.pick(cx, cy);
+    return p && { x: snapCoord(p.x), z: snapCoord(p.z) };
+  }
+
   /** Escape: close whatever is on top, one thing per press. */
   escapePressed() {
     if (this.ui.confirmOpen) { this.ui.confirmDone(false); return; }
     const pauseOpen = !document.getElementById('modal-pause').classList.contains('hidden');
+    if (this.mode === 'replay') { this.exitReplay(); return; }
     if (this.mode !== 'game') {
       if (pauseOpen) { this.ui.closeSettings(); return; }
       const screen = document.body.dataset.screen;
@@ -346,6 +509,7 @@ class App {
       if (this.placing) this.view.hideGhost();
     });
     c.addEventListener('pointerdown', (e) => {
+      if (this.mode === 'replay' && e.button !== 0) { this.drag = { x: e.clientX, y: e.clientY, moved: false }; return; }
       if (this.mode !== 'game') return;
       audio.init();
       // Clicking the map takes focus away from any button or checkbox, so hotkeys go to the game.
@@ -360,9 +524,10 @@ class App {
       if (!p) return;
       if (this.placing) {
         const type = this.placing;
-        const res = this.game.canPlace(type, p.x, p.z);
+        const q = this.pickSnapped(e.clientX, e.clientY);
+        const res = this.game.canPlace(type, q.x, q.z);
         if (!res.ok) { this.sound('error'); this.flashHint(res.reason); return; }
-        this.game.placeTower(type, p.x, p.z);
+        this.game.command(CMD.place, type, q.x, q.z);
         if (this.firstPlace) { this.firstPlace = false; if (this.game.wave === 0) this.ui.hint('Nice! Press <b>START</b> (or <kbd>Space</kbd>) to send the first wave.'); }
         if (!e.shiftKey || this.game.cash < TOWERS[type].cost) this.cancelPlacing();
         else this.updateGhost(e.clientX, e.clientY);
@@ -373,7 +538,7 @@ class App {
       if (t) this.sound('click');
     });
     window.addEventListener('pointerup', () => { this.drag = null; });
-    c.addEventListener('wheel', (e) => { if (this.mode === 'game') { e.preventDefault(); this.view.zoomBy(e.deltaY, e.clientX, e.clientY); } }, { passive: false });
+    c.addEventListener('wheel', (e) => { if (this.mode === 'game' || this.mode === 'replay') { e.preventDefault(); this.view.zoomBy(e.deltaY, e.clientX, e.clientY); } }, { passive: false });
 
     // How did the focused control get focus: Tab (keyboard) or a click/tap?
     window.addEventListener('pointerdown', () => { this.focusFromKeyboard = false; }, true);
@@ -393,6 +558,15 @@ class App {
         // Enter deploys from the map screen (unless a button has focus: then Enter presses that button).
         const onButton = el.tagName === 'BUTTON';
         if (k === 'enter' && !onButton && document.body.dataset.screen === 'maps') { e.preventDefault(); this.ui.deploy(); }
+        return;
+      }
+      if (this.mode === 'replay') {
+        if (k === ' ' || k === 'f' || k === 'n') { e.preventDefault(); el.blur?.(); }
+        if (e.repeat) return;
+        if (k === ' ') this.replayPause();
+        else if (k === 'f') this.replaySpeed();
+        else if (k === 'n') this.replaySkip();
+        else if (k === 'm') this.toggleMute();
         return;
       }
       if (this.mode !== 'game') return;
@@ -438,7 +612,15 @@ class App {
   step(now) {
     const realDt = Math.min(MAX_FRAME, Math.max(0, (now - this.last) / 1000));
     this.last = now;
-    if (this.game && !this.paused && this.mode !== 'loading') {
+    if (this.mode === 'replay') {
+      this.stepReplay(realDt);
+      const p = this.player;
+      const moving = !p.paused || p.skipTo != null;
+      const alpha = moving && this.game.state === 'playing' ? Math.min(1, this.acc / STEP) : 1;
+      this.view.update(moving ? realDt * p.speed : 0, alpha);
+      this.ui.update();
+      this.ui.updateReplayBar(p);
+    } else if (this.game && !this.paused && this.mode !== 'loading') {
       const speed = this.mode === 'menu' ? 1 : this.speed;
       this.acc += realDt * speed;
       // Enough steps to keep 3x speed honest even at ~4 fps, but never an

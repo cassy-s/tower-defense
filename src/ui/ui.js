@@ -6,6 +6,7 @@ import { DIFFICULTIES, DIFFICULTY_ORDER, getWave, isBossWave } from '../config/w
 import { computeStats, ABILITIES, TARGETING, TARGETING_LABEL } from '../game/tower.js';
 import { sentryRing } from '../game/sentry.js';
 import { ICONS, icon, hydrateIcons } from './icons.js';
+import { renderGraph, GRAPH_TABS } from './charts.js';
 
 const $ = (sel) => document.querySelector(sel);
 const fmt = (n) => Math.floor(n).toLocaleString('en-US');
@@ -56,6 +57,22 @@ export class UI {
     click('#btn-settings-done', () => this.closeSettings());
     click('#btn-end-retry', () => this.app.restart());
     click('#btn-end-menu', () => this.app.quitToMenu());
+    click('#btn-end-replay', () => this.app.startReplay(this.app.endedReplay));
+    click('#btn-end-share', () => this.app.shareReplay(this.app.mode === 'replay' ? this.app.player?.replay : this.app.endedReplay));
+    click('#btn-last-replay', () => { if (this.lastReplay) this.app.startReplay(this.lastReplay); });
+    click('#rp-play', () => this.app.replayPause());
+    click('#rp-speed', () => this.app.replaySpeed());
+    click('#rp-skip', () => this.app.replaySkip());
+    click('#rp-exit', () => this.app.exitReplay());
+    const tabs = $('#graph-tabs');
+    for (const [id, label] of GRAPH_TABS) {
+      const b = document.createElement('button');
+      b.className = 'graph-tab';
+      b.dataset.graph = id;
+      b.textContent = label;
+      b.addEventListener('click', () => { this.app.sound('click'); this.showGraph(id); });
+      tabs.appendChild(b);
+    }
     click('#btn-mute', () => this.app.toggleMute());
     click('#btn-go', () => this.app.goPressed());
     click('#btn-speed', () => this.app.cycleSpeed());
@@ -510,14 +527,24 @@ export class UI {
     h.classList.remove('hidden');
   }
 
-  showEnd(won, game) {
+  /** The end screen, after a game or after a replay (`differs`: the replay played out differently than recorded). */
+  showEnd(won, game, { replay = false, differs = false } = {}) {
     const m = $('#modal-end');
     m.classList.remove('hidden');
     m.classList.toggle('won', won);
-    $('#end-banner').textContent = won ? 'VICTORY!' : 'OVERRUN!';
-    $('#end-sub').textContent = won
+    m.classList.toggle('replay', replay);
+    $('#end-banner').textContent = replay ? 'REPLAY OVER' : won ? 'VICTORY!' : 'OVERRUN!';
+    const result = won
       ? `${MAPS[game.mapId].name} on ${game.difficulty.name} — the bunker held.`
       : `The horde broke through on wave ${game.wave} of ${game.maxWaves}.`;
+    $('#end-sub').textContent = differs
+      ? 'This replay was recorded on another version of the game, so it played out differently.'
+      : result;
+    $('#btn-end-retry').textContent = replay ? 'WATCH AGAIN' : 'PLAY AGAIN';
+    $('#btn-end-replay').classList.toggle('hidden', replay || !this.app.endedReplay);
+    $('#btn-end-share').classList.toggle('hidden', !replay && !this.app.endedReplay);
+    this.endGame = game;
+    this.showGraph(this.graphTab || 'damage');
     // Sold towers still count. No MVP if nothing killed anything.
     const all = [...game.towers, ...game.retired];
     const best = Math.max(0, ...all.map((t) => t.kills));
@@ -528,6 +555,50 @@ export class UI {
       <div><span>Cash earned</span><b>$${fmt(game.stats.earned)}</b></div>
       <div><span>Towers built</span><b>${game.stats.built}</b></div>
       ${mvp ? `<div class="mvp"><img src="${this.app.portraits.tower(mvp.type, mvp.level)}" alt=""><span>MVP</span><b>${mvp.def.name} · ${fmt(mvp.kills)} kills${game.towers.includes(mvp) ? '' : ' (sold)'}</b></div>` : ''}`;
+  }
+
+  showGraph(tab) {
+    this.graphTab = tab;
+    for (const b of document.querySelectorAll('.graph-tab')) {
+      const on = b.dataset.graph === tab;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', String(on));
+    }
+    if (this.endGame) renderGraph($('#graph-box'), tab, this.endGame, this.app.portraits);
+  }
+
+  // ------------------------------------------------------------ replays ---
+  /** Title screen: a button to watch the last finished game. */
+  showLastReplay(replay) {
+    this.lastReplay = replay && MAPS[replay.map] && DIFFICULTIES[replay.diff] ? replay : null;
+    const b = $('#btn-last-replay');
+    b.classList.toggle('hidden', !this.lastReplay);
+    if (this.lastReplay) b.title = `Watch your last game: ${MAPS[replay.map].name}, ${DIFFICULTIES[replay.diff].name}`;
+  }
+
+  showReplayBar(player) {
+    const r = player.replay;
+    $('#rp-title').textContent = `REPLAY · ${MAPS[r.map].name.toUpperCase()} · ${DIFFICULTIES[r.diff].name.toUpperCase()}`;
+    $('#replay-bar').classList.remove('hidden');
+    this.updateReplayBar(player, true);
+  }
+  hideReplayBar() { $('#replay-bar').classList.add('hidden'); }
+
+  /** Called every frame while a replay plays; only touches the DOM when something changed. */
+  updateReplayBar(p, force = false) {
+    const c = force ? (this.rpCache = {}) : (this.rpCache ||= {});
+    const pct = `${((p.tick / Math.max(1, p.totalTicks)) * 100).toFixed(1)}%`;
+    if (c.pct !== pct) { c.pct = pct; $('#rp-fill').style.width = pct; }
+    const playing = !p.paused && !p.finished;
+    if (c.playing !== playing) {
+      c.playing = playing;
+      const b = $('#rp-play');
+      b.innerHTML = playing ? ICONS.pause : ICONS.play;
+      b.setAttribute('aria-label', playing ? 'Pause replay (Space)' : 'Play replay (Space)');
+    }
+    if (c.speed !== p.speed) { c.speed = p.speed; $('#rp-speed').textContent = `${p.speed}x`; }
+    const status = p.skipTo != null ? `SKIPPING TO WAVE ${p.skipTo}…` : p.finished ? 'FINISHED' : '';
+    if (c.status !== status) { c.status = status; $('#rp-status').textContent = status; $('#rp-skip').disabled = !!p.finished; }
   }
 }
 

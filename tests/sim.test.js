@@ -1,6 +1,7 @@
 // Simulation tests. Pure logic, no DOM: they run in Node (`npm test`, CI) and
 // in the browser (open /tests/ with the dev server running).
-import { Game } from '../src/game/game.js';
+import { Game, CMD, snapCoord } from '../src/game/game.js';
+import { ReplayPlayer, makeReplay, liveSegment, startOf, resultOf, encodeReplay, decodeReplay } from '../src/game/replay.js';
 import { TOWERS } from '../src/config/towers.js';
 import { computeStats } from '../src/game/tower.js';
 import { sentryRing } from '../src/game/sentry.js';
@@ -268,6 +269,103 @@ test('every tower at every level fights without NaN', () => {
     g.wave = 10; g.startNextWave(); run(g, 20);
     assert(Number.isFinite(g.cash) && g.towers.every((t) => Number.isFinite(t.damageDealt) && Number.isFinite(t.dps)), `${type}: NaN`);
   }
+});
+
+// ------------------------------------------------------------- replays ---
+/**
+ * A scripted player that only acts through Game.command, the way the app
+ * does: builds, upgrades, retargets, uses abilities, sells, turns AUTO on.
+ */
+function botTick(g) {
+  if (g.state !== 'playing') return;
+  const k = g.tick;
+  if (k % 240 === 7) {
+    const type = BOT_TYPES[(k / 240 | 0) % BOT_TYPES.length];
+    if (g.cash >= TOWERS[type].cost) {
+      const p = g.paths[0].at(((k * 7) % 900) / 900 * g.paths[0].length);
+      try {
+        const [x, z] = spotNear(g, type, p.x, p.z + 4);
+        g.command(CMD.place, type, snapCoord(x), snapCoord(z));
+      } catch { /* no room: skip */ }
+    }
+  }
+  if (k % 180 === 50) for (const t of g.towers) if (t.nextUpgrade && g.cash >= t.nextUpgrade.cost) { g.command(CMD.upgrade, t.id); break; }
+  if (k % 300 === 99 && g.towers.length) g.command(CMD.target, g.towers[k % g.towers.length].id, ['first', 'last', 'strong', 'close'][k % 4]);
+  if (k % 120 === 3) for (const t of g.towers) if (t.stats.ability) g.command(CMD.ability, t.id);
+  if (g.wave === 4 && !g.autoStart) g.command(CMD.auto, true);
+  if (g.wave >= 6 && g.towers.length > 3 && !g.log.some((c) => c[1] === CMD.sell)) g.command(CMD.sell, g.towers[1].id);
+  if (!g.autoStart && !g.waveInProgress) g.command(CMD.wave);
+}
+const BOT_TYPES = ['rifleman', 'grenadier', 'officer', 'marksman', 'depot', 'tesla', 'riveter'];
+
+/** Everything that would show if a replay went differently. */
+function stateOf(g) {
+  return JSON.stringify([g.tick, g.wave, g.cash, g.lives, g.stats, g.towers.map((t) => [t.type, t.level, t.targeting, t.kills, t.damageDealt]), g.history]);
+}
+
+function playBot(g, untilWave) {
+  let guard = 60 * 60 * 60;
+  while (g.state === 'playing' && !(g.wave >= untilWave && g.canSave) && guard-- > 0) { botTick(g); g.update(STEP); }
+  return g;
+}
+
+test('a recorded game replays exactly', () => {
+  const seed = 4242;
+  const g = playBot(new Game({ mapId: 'quarantine', difficulty: 'medium', seed }), 9);
+  assert(g.log.length > 20, `bot only made ${g.log.length} commands`);
+  for (const op of [CMD.place, CMD.upgrade, CMD.wave, CMD.auto, CMD.target, CMD.sell]) assert(g.log.some((c) => c[1] === op), `bot never used ${op}`);
+  const replay = JSON.parse(JSON.stringify(makeReplay(g, [liveSegment(g, seed, null)], resultOf(g))));
+  const r = new ReplayPlayer(replay).runToEnd(STEP);
+  eq(stateOf(r), stateOf(g), 'replay drifted');
+});
+
+test('a resumed run replays across the resume', () => {
+  // Segment 1: play to wave 3, autosave (with its replay so far), stop.
+  const a = playBot(new Game({ mapId: 'maple', difficulty: 'easy', seed: 11 }), 3);
+  const save = JSON.parse(JSON.stringify({ ...a.serialize(), replay: makeReplay(a, [liveSegment(a, 11, null)]) }));
+  // Segment 2: resume from the save with a new seed and play on.
+  const b = Game.fromSave(save, { seed: 77 });
+  b.command(CMD.delay, 2);
+  playBot(b, 7);
+  const replay = JSON.parse(JSON.stringify(makeReplay(b, [...save.replay.segs, liveSegment(b, 77, startOf(save))])));
+  eq(replay.segs.length, 2);
+  const p = new ReplayPlayer(replay);
+  let switched = 0;
+  while (!p.done) if (p.step(STEP) === 'segment') switched++;
+  eq(switched, 1, 'segment switches');
+  eq(stateOf(p.game), stateOf(b), 'replay drifted after the resume');
+  eq(p.tick, p.totalTicks, 'progress');
+});
+
+test('history has one entry per wave, and graphs add up', () => {
+  const g = playBot(new Game({ mapId: 'maple', difficulty: 'easy', seed: 3 }), 5);
+  eq(g.history.length, g.wave, 'entries');
+  const last = g.history.at(-1);
+  const dealt = [...g.towers, ...g.retired].reduce((n, t) => n + t.damageDealt, 0);
+  const recorded = Object.values(last.dmg).reduce((a, b) => a + b, 0);
+  assert(Math.abs(dealt - recorded) <= Object.keys(last.dmg).length, `damage ${recorded} vs ${dealt}`);
+  for (let i = 1; i < g.history.length; i++) assert(g.history[i].kills >= g.history[i - 1].kills, 'kills go down');
+  const r = Game.fromSave(JSON.parse(JSON.stringify(g.serialize())));
+  eq(JSON.stringify(r.history), JSON.stringify(g.history), 'history lost on save');
+});
+
+test('a lost game records the wave it was lost on', () => {
+  const g = newGame({ cashOverride: 0 });
+  g.lives = 1;
+  g.startNextWave();
+  run(g, 120);
+  eq(g.state, 'lost');
+  eq(g.history.at(-1).partial, true);
+  eq(g.history.at(-1).lives, 0);
+});
+
+test('replays survive the share-link encoding', async () => {
+  if (typeof CompressionStream === 'undefined') return;
+  const g = playBot(new Game({ mapId: 'hollow', difficulty: 'easy', seed: 8 }), 3);
+  const replay = makeReplay(g, [liveSegment(g, 8, null)], resultOf(g));
+  const code = await encodeReplay(replay);
+  assert(/^[\w-]+$/.test(code), 'not URL-safe');
+  eq(JSON.stringify(await decodeReplay(code)), JSON.stringify(replay));
 });
 
 /** Runs every test; returns { passed, failed: [{ name, error }] }. */

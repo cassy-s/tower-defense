@@ -5,7 +5,7 @@ import { TOWERS } from '../config/towers.js';
 import { DIFFICULTIES, getWave, waveBonus, waveHpScale } from '../config/waves.js';
 import { Path } from './path.js';
 import { Enemy } from './enemy.js';
-import { Tower, computeStats } from './tower.js';
+import { Tower, computeStats, TARGETING } from './tower.js';
 import { Sentry, SENTRY_RADIUS } from './sentry.js';
 import { buildLayout } from './layout.js';
 import { mulberry32 } from './rng.js';
@@ -44,6 +44,9 @@ export class Game {
     this.retired = [];      // sold towers, so the end screen can still credit them
     this.cashFrac = 0;      // fractions of a dollar from multiplied bounties
     this.idCounter = 0;
+    this.tick = 0;          // simulation steps so far (replays key commands to it)
+    this.log = [];          // every player command: [tick, op, ...args] (see command())
+    this.history = [];      // one entry per finished wave, for the end-screen graphs
     this.listeners = {};
   }
 
@@ -73,6 +76,42 @@ export class Game {
     return whole;
   }
   canAfford(n) { return this.cash >= n; }
+
+  // ----------------------------------------------------------- commands ---
+  /**
+   * Every player action goes through here, so a game can be recorded and
+   * replayed exactly: the simulation is deterministic, so a seed plus the
+   * list of [tick, op, ...args] reproduces the whole game (see replay.js).
+   * Only commands that did something are logged. Returns the action's result.
+   */
+  command(op, ...args) {
+    const r = this.runCommand(op, args);
+    if (r) this.log.push([this.tick, op, ...args]);
+    return r;
+  }
+
+  runCommand(op, a) {
+    const tower = () => this.towers.find((t) => t.id === a[0]);
+    switch (op) {
+      case CMD.place: return this.placeTower(a[0], a[1], a[2]);
+      case CMD.upgrade: { const t = tower(); return !!t && this.upgradeTower(t); }
+      case CMD.sell: { const t = tower(); if (!t) return false; this.sellTower(t); return true; }
+      case CMD.wave: return this.startNextWave();
+      case CMD.auto:
+        this.autoStart = !!a[0];
+        if (a[0] && !this.waveInProgress) this.startNextWave();
+        return true;
+      case CMD.target: {
+        const t = tower();
+        if (!t || t.stats.attack === 'none' || !TARGETING.includes(a[1])) return false;
+        t.targeting = a[1];
+        return true;
+      }
+      case CMD.ability: { const t = tower(); return !!t && t.useAbility(); }
+      case CMD.delay: this.autoTimer = a[0]; return true;
+    }
+    return false;
+  }
 
   // ---------------------------------------------------------- placement ---
   countOf(type) { return this.towers.filter((t) => t.type === type).length; }
@@ -133,7 +172,7 @@ export class Game {
     const i = this.towers.indexOf(t);
     if (i < 0) return;
     this.towers.splice(i, 1);
-    if (t.kills > 0) this.retired.push(t);
+    if (t.kills > 0 || t.damageDealt > 0) this.retired.push(t);
     for (const s of this.sentries.filter((s) => s.owner === t)) this.removeSentry(s, 'sold');
     this.addCash(t.sellValue, 'sell');
     this.emit('towerSold', { tower: t });
@@ -197,11 +236,29 @@ export class Game {
       this.emit('income', { tower: t, amount });
     }
     if (income) this.addCash(income, 'income');
+    this.recordWave(w);
     this.emit('waveEnd', { wave: w, bonus, income });
     if (this.wave >= this.maxWaves && this.waveOpen.size === 0 && this.spawnQueue.length === 0) {
       this.state = 'won';
       this.emit('gameOver', { won: true });
     } else if (this.autoStart && this.waveOpen.size === 0) this.autoTimer = 1.2;
+  }
+
+  /**
+   * End-screen graph data: a running total of everything at the end of each
+   * wave (the graphs take differences). Damage is summed per tower type,
+   * sold towers included. `partial` marks the wave the game was lost on.
+   */
+  recordWave(w, partial = false) {
+    const dmg = {};
+    for (const list of [this.towers, this.retired]) {
+      for (const t of list) if (t.damageDealt > 0) dmg[t.type] = (dmg[t.type] || 0) + t.damageDealt;
+    }
+    for (const k in dmg) dmg[k] = Math.round(dmg[k]);
+    const s = this.stats;
+    const e = { w, t: Math.round(this.time), cash: this.cash, lives: this.lives, kills: s.kills, leaked: s.leaked, earned: s.earned, spent: s.spent, dmg };
+    if (partial) e.partial = true;
+    this.history.push(e);
   }
 
   killEnemy(e, source) {
@@ -224,6 +281,7 @@ export class Game {
     this.lives = Math.max(0, this.lives - e.leak);
     this.emit('leak', { enemy: e, lives: this.lives });
     if (this.lives <= 0 && this.state === 'playing') {
+      this.recordWave(this.wave, true);
       this.state = 'lost';
       this.emit('gameOver', { won: false });
       return;
@@ -364,6 +422,7 @@ export class Game {
 
   update(dt) {
     if (this.state !== 'playing') return;
+    this.tick++;
     this.time += dt;
 
     if (this.autoTimer > 0) { this.autoTimer -= dt; if (this.autoTimer <= 0) this.startNextWave(); }
@@ -413,7 +472,8 @@ export class Game {
         type: t.type, x: t.x, z: t.z, level: t.level, spent: t.spent, refundable: t.refundable, targeting: t.targeting,
         kills: t.kills, damageDealt: t.damageDealt, abilityTimer: t.abilityTimer, scrap: t.scrap, angle: t.angle,
       })),
-      retired: this.retired.map((t) => ({ type: t.type, level: t.level, kills: t.kills })),
+      retired: this.retired.map((t) => ({ type: t.type, level: t.level, kills: t.kills, damageDealt: t.damageDealt || 0 })),
+      history: this.history,
       sentries: this.sentries.map((s) => ({ owner: towers.indexOf(s.owner), x: s.x, z: s.z, hp: s.hp, stats: s.stats, tier: s.tier })),
       savedAt: Date.now(),
     };
@@ -438,7 +498,8 @@ export class Game {
       });
       g.towers.push(t);
     }
-    g.retired = (data.retired || []).filter((r) => TOWERS[r.type]).map((r) => ({ ...r, def: TOWERS[r.type] }));
+    g.retired = (data.retired || []).filter((r) => TOWERS[r.type]).map((r) => ({ damageDealt: 0, ...r, def: TOWERS[r.type] }));
+    g.history = Array.isArray(data.history) ? data.history.map((h) => ({ ...h, dmg: { ...h.dmg } })) : [];
     for (const d of data.sentries || []) {
       const owner = g.towers[d.owner];
       if (!owner || !d.stats) continue;
@@ -453,6 +514,12 @@ export class Game {
 }
 
 const SAVE_VERSION = 1;
+
+/** Player command codes (short, because a replay stores every one). */
+export const CMD = { place: 'P', upgrade: 'U', sell: 'S', wave: 'W', auto: 'A', target: 'T', ability: 'Q', delay: 'D' };
+
+/** Placement coordinates are snapped to 1/64 of a tile, so a replay stores them exactly. */
+export const snapCoord = (v) => Math.round(v * 64) / 64;
 
 /** Applies one aura to a tower's buff. Aura towers don't take range from other auras (their ring is their aura). */
 function applyAura(buff, aura, stats) {
