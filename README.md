@@ -46,7 +46,7 @@ See **[docs/ADDING_TOWERS.md](docs/ADDING_TOWERS.md)**. In short, add one block 
 ## Tools
 - `npm run check`: validates content and runs a headless smoke battle with every tower.
 - `npm test`: simulation tests (targeting, waves, win/loss, save/load, and the bugs from the last review). The same tests run in the browser at `/tests/`.
-- `npm run stamp`: gives every module a content-hash URL in `index.html` so a deploy never mixes old and new files. Run it before committing (CI checks). Without Node: `tools\stamp.ps1`.
+- `npm run stamp`: gives every module a content-hash URL in `index.html` so a deploy never mixes old and new files, and writes the build id to `build.txt` (a page that is an old cached copy sees a different id and loads the new one). Run it before committing (CI checks). Without Node: `tools\stamp.ps1`.
 - `npm run sim`: a bot plays every map × difficulty and reports how far it gets.
 - `node tools/waves.mjs 1 50`: prints every wave's zombies and total HP. Useful when tuning.
 - `/tools/gallery.html`: renders every tower (base and max level), every zombie and every map.

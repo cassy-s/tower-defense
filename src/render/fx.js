@@ -143,6 +143,7 @@ export class FX {
   }
 
   muzzle(pos, dir, color = '#ffd36a', size = 0.45) {
+    if (this.reducedMotion) size *= 0.5; // softer flashes too
     this.glow.spawn({ ...pos, size, spin: 0, life: 0.06, color });
     this.glow.spawn({ x: pos.x + dir.x * 0.25, y: pos.y, z: pos.z + dir.z * 0.25, size: size * 0.6, life: 0.05, color: '#fff7d6' });
   }
@@ -184,7 +185,8 @@ export class FX {
     for (let i = 0; i < 6 * this.quality; i++) {
       this.lit.spawn({ x, y: 0.4, z, vx: (Math.random() - 0.5) * 9, vy: 4 + Math.random() * 5, vz: (Math.random() - 0.5) * 9, size: 0.18, life: 0.9, gravity: 18, color: '#5a4630' });
     }
-    this.glow.spawn({ x, y: 0.8, z, size: radius * 0.9, life: 0.12, spin: 0, color: '#fff0b0' });
+    // The bright full-size flash is skipped for players who ask for less motion.
+    if (!this.reducedMotion) this.glow.spawn({ x, y: 0.8, z, size: radius * 0.9, life: 0.12, spin: 0, color: '#fff0b0' });
     this.ring(x, z, radius, '#ffb347', 0.35);
     this.splat(x, z, '#2a2520', radius * 0.9);
     this.shake(Math.min(0.35, radius * 0.06));

@@ -26,7 +26,7 @@ foreach ($dir in @('src', 'vendor')) {
 $entries = @('  "three": "./' + (Get-Stamp 'vendor/three.module.js') + '"')
 foreach ($m in $mods) { $entries += ('  "./' + $m + '": "./' + (Get-Stamp $m) + '"') }
 
-$block = @(
+$head = @(
     '<link rel="stylesheet" href="' + (Get-Stamp 'css/fonts.css') + '">'
     '<link rel="stylesheet" href="' + (Get-Stamp 'css/style.css') + '">'
     '<script type="importmap">'
@@ -34,8 +34,17 @@ $block = @(
     ($entries -join ",`n")
     '} }'
     '</script>'
-    '<script type="module" src="' + (Get-Stamp 'src/main.js') + '"></script>'
 ) -join "`n"
+
+# The build id covers every stamped file, so any change gives a new id.
+$buildBytes = $sha1.ComputeHash($utf8.GetBytes($head))
+$build = (-join ($buildBytes | ForEach-Object { $_.ToString('x2') })).Substring(0, 8)
+
+# Must match LOADER in tools/stamp.mjs character for character.
+$loader = @'
+<script>(function () { var B = '__BUILD__', M = '__MAIN__'; function go() { if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', go); return; } var s = document.createElement('script'); s.type = 'module'; s.src = M; document.head.appendChild(s); } fetch('build.txt?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : B; }).then(function (b) { b = b.trim(); var k = 'blockade.reloadedFor'; if (b && b !== B && sessionStorage.getItem(k) !== b) { sessionStorage.setItem(k, b); location.replace(location.pathname + '?b=' + b); } else go(); }, go); })();</script>
+'@
+$block = $head + "`n" + $loader.Replace('__BUILD__', $build).Replace('__MAIN__', (Get-Stamp 'src/main.js'))
 
 $file = Join-Path $root 'index.html'
 $html = [System.IO.File]::ReadAllText($file, $utf8)
@@ -49,11 +58,17 @@ for ($i = 0; $i -lt $src.Length; $i++) {
 if ($start -lt 0 -or $end -lt $start) { Write-Error 'index.html: stamp markers not found'; exit 1 }
 
 $next = @($src[0..$start]) + $block.Split("`n") + @($src[$end..($src.Length - 1)])
-$same = (($next -join "`n") -ceq ($src -join "`n"))
+$buildFile = Join-Path $root 'build.txt'
+$oldBuild = if (Test-Path -LiteralPath $buildFile) { [System.IO.File]::ReadAllText($buildFile, $utf8).Trim() } else { '' }
+$same = (($next -join "`n") -ceq ($src -join "`n")) -and ($oldBuild -ceq $build)
 
 if ($Check) {
     if ($same) { Write-Host 'index.html stamps are up to date'; exit 0 }
-    Write-Error 'index.html stamps are out of date: run tools\stamp.ps1 (or npm run stamp) and commit the result.'; exit 1
+    Write-Error 'index.html / build.txt stamps are out of date: run tools\stamp.ps1 (or npm run stamp) and commit the result.'; exit 1
 }
 if ($same) { Write-Host 'index.html stamps already up to date' }
-else { [System.IO.File]::WriteAllText($file, ($next -join $eol), $utf8); Write-Host "stamped $($mods.Length) modules in index.html" }
+else {
+    [System.IO.File]::WriteAllText($file, ($next -join $eol), $utf8)
+    [System.IO.File]::WriteAllText($buildFile, $build, $utf8)
+    Write-Host "stamped $($mods.Length) modules in index.html (build $build)"
+}

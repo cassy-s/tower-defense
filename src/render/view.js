@@ -117,6 +117,7 @@ export class View {
     this.scene.add(this.world.group);
     for (const t of game.towers) this.addTower(t);
     for (const e of game.enemies) this.addEnemy(e);
+    for (const s of game.sentries) this.addSentry(s, { quiet: true }); // e.g. a resumed game
 
     const on = (type, fn) => this.unsub.push(game.on(type, fn));
     on('towerPlaced', ({ tower }) => { this.addTower(tower); const [x, z] = toWorld(tower.x, tower.z); this.fx.ring(x, z, tower.footprint * 1.2, '#ffffff', 0.4); this.fx.goo({ x, y: 0.3, z }, '#8a6a4a', 8, 4); });
@@ -153,7 +154,8 @@ export class View {
   }
 
   // ---------------------------------------------------------- sentries ----
-  addSentry(s) {
+  /** quiet: no build effects or sound (sentries that already exist when a game is loaded). */
+  addSentry(s, { quiet = false } = {}) {
     const model = buildSentry(s.stats, s.tier);
     const root = new THREE.Group();
     const [x, z] = toWorld(s.x, s.z);
@@ -166,9 +168,10 @@ export class View {
     bar.add(bg, fill); bar.position.y = 2.3;
     root.add(bar);
     this.scene.add(root);
-    const sv = { sentry: s, root, model, bar, fill, yaw: s.angle, recoil: 0, rise: 0, hurt: 0 };
+    const sv = { sentry: s, root, model, bar, fill, yaw: s.angle, recoil: 0, rise: quiet ? 1 : 0, hurt: 0 };
     model.turret.rotation.y = s.angle;
     this.sentryViews.set(s.id, sv);
+    if (quiet) return;
     this.fx.ring(x, z, 1.6, '#d8a838', 0.45);
     this.fx.sparks({ x, y: 0.8, z }, '#ffd36a', 14, 7);
     this.onSound?.('build');
@@ -751,8 +754,10 @@ export class View {
     tv.yaw += d * Math.min(1, dt * 14);
     rig.root.rotation.y = tv.yaw;
     const ph = this.time + t.id * 1.7;
+    // Once the game is over the towers stand down (no spinning guns behind the end screen).
+    const live = this.menuMode || this.game?.state === 'playing';
     // Aim: raise the weapon while there is a target, lower it a bit when idle.
-    const engaged = !!(t.firing || (t.stats.attack === 'spinup' && t.spin > 0.05));
+    const engaged = live && !!(t.firing || (t.stats.attack === 'spinup' && t.spin > 0.05));
     if (engaged) tv.idleT = 0; else tv.idleT = (tv.idleT || 0) + dt;
     const aimTarget = tv.idleT > 1.2 ? 0 : 1;
     tv.aim = (tv.aim ?? 0) + (aimTarget - (tv.aim ?? 0)) * Math.min(1, dt * 5);
@@ -783,7 +788,7 @@ export class View {
     }
     // Minigun: shake while spinning. Both branches above put the gun back at its
     // rest position every frame, so the jitter can't add up and walk it away.
-    if (t.stats.attack === 'spinup' && t.spin > 0.2) {
+    if (live && t.stats.attack === 'spinup' && t.spin > 0.2) {
       const j = t.spin * 0.04;
       rig.mount.position.x += (Math.random() - 0.5) * j;
       rig.body.position.y += (Math.random() - 0.5) * j;
@@ -798,7 +803,7 @@ export class View {
       rig.body.position.y = -0.12 * hit;
       rig.head.rotation.x = 0.35;
     }
-    const spinning = t.stats.attack === 'spinup' ? t.spin : t.firing ? 0.6 : 0.05;
+    const spinning = !live ? 0 : t.stats.attack === 'spinup' ? t.spin : t.firing ? 0.6 : 0.05;
     for (const s of rig.spinners) s.rotation.z += dt * spinning * 34;
     tv.stars.visible = t.stunTimer > 0;
     if (tv.stars.visible) { tv.stars.rotation.y += dt * 5; rig.body.rotation.z = Math.sin(this.time * 12) * 0.08; } else rig.body.rotation.z = 0;

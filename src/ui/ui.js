@@ -4,6 +4,7 @@ import { ENEMIES, MODIFIERS } from '../config/enemies.js';
 import { MAPS, MAP_ORDER } from '../config/maps.js';
 import { DIFFICULTIES, DIFFICULTY_ORDER, getWave, isBossWave } from '../config/waves.js';
 import { computeStats, ABILITIES, TARGETING, TARGETING_LABEL } from '../game/tower.js';
+import { sentryRing } from '../game/sentry.js';
 import { ICONS, icon, hydrateIcons } from './icons.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -44,6 +45,8 @@ export class UI {
     $('#btn-start').addEventListener('click', () => this.deploy());
     click('#btn-continue', () => { if (this.run) this.app.startGame(null, null, this.run); });
     $('#btn-error-reload').addEventListener('click', () => location.reload());
+    click('#btn-confirm-ok', () => this.confirmDone?.(true));
+    click('#btn-confirm-cancel', () => this.confirmDone?.(false));
     for (const t of document.querySelectorAll('.tab')) t.addEventListener('click', () => { this.app.sound('click'); this.renderCodex(t.dataset.tab); });
 
     click('#btn-pause', () => this.app.setPaused(true));
@@ -164,6 +167,7 @@ export class UI {
     this.buildShop();
     this.renderNextWave();
     this.hint(null);
+    this.endFlash(); // no leftover message from the last game
     game.on('newEnemy', ({ type }) => {
       const e = ENEMIES[type];
       if (type === 'shambler') return;
@@ -279,9 +283,9 @@ export class UI {
       </div>
       <div class="insp-actions">
         ${next
-          ? `<button class="btn up-btn" data-r="up" title="Upgrade (U)">${icon('up')} UPGRADE <span>$${fmt(next.cost)}</span></button>`
+          ? `<button class="btn up-btn" data-r="up" title="Upgrade (U)"><span class="lbl">${icon('up')} UPGRADE</span><span class="cost">$${fmt(next.cost)}</span></button>`
           : `<div class="maxed-pill">${icon('star')} MAX LEVEL</div>`}
-        <button class="btn btn-red sell-btn" data-r="sell" title="Sell (Del, press twice)">SELL <span data-r="sellv"></span></button>
+        <button class="btn btn-red sell-btn" data-r="sell" title="Sell (Del, press twice)"><span class="lbl">SELL</span><span class="cost" data-r="sellv"></span></button>
       </div>
       ${next ? `
         <div class="upgrade-card" data-r="card">
@@ -292,7 +296,7 @@ export class UI {
       ${ability ? `<button class="btn btn-gold ability-btn" data-r="ability" title="${ability.desc}">${icon('star')} ${ability.name.toUpperCase()} <small data-r="abstate"></small><kbd>Q</kbd></button>` : ''}
       ${s.attack !== 'none' ? `<div class="insp-target"><span>TARGET <kbd>T</kbd></span><button class="tbtn" data-r="tprev" aria-label="Previous targeting">‹</button><b data-r="target"></b><button class="tbtn" data-r="tnext" aria-label="Next targeting">›</button></div>` : ''}
       <div class="insp-stats" data-r="stats"></div>
-      ${s.scrapMax ? `<div class="scrap"><i data-r="scrapbar"></i><span data-r="scraptext"></span></div><div class="chips" data-r="builder"></div>` : ''}
+      ${s.scrapMax ? `<div class="scrap" title="Every hit fills the meter; when it is full she builds a sentry. Sentries keep the level they were built at: upgrades improve the ones built afterwards."><i data-r="scrapbar"></i><span data-r="scraptext"></span></div><div class="chips" data-r="builder"></div>` : ''}
       <div class="insp-record"><span>${icon('skull')} <b data-r="kills"></b> kills</span><span>${icon('sword')} <b data-r="dmg"></b> dmg</span></div>`;
     const r = {};
     for (const n of el.querySelectorAll('[data-r]')) r[n.dataset.r] = n;
@@ -351,7 +355,30 @@ export class UI {
     b.classList.remove('hidden');
   }
 
-  deploy() { this.app.sound('click'); this.app.startGame(this.selectedMap, this.selectedDiff); }
+  /** Start a new game. A saved run would be replaced by it, so ask first. */
+  async deploy() {
+    this.app.sound('click');
+    const run = this.app.savedRun();
+    if (run && MAPS[run.mapId] && DIFFICULTIES[run.difficulty]) {
+      const ok = await this.confirm(
+        `You have a saved run on <b>${MAPS[run.mapId].name}</b> (${DIFFICULTIES[run.difficulty].name}, wave ${run.wave}). A new game replaces it.`,
+        'START NEW GAME',
+      );
+      if (!ok) return;
+    }
+    this.app.startGame(this.selectedMap, this.selectedDiff);
+  }
+
+  /** Yes/no dialog. Resolves true for OK, false for Cancel or Escape. */
+  confirm(html, okLabel = 'OK') {
+    const m = $('#modal-confirm');
+    $('#confirm-text').innerHTML = html;
+    $('#btn-confirm-ok').textContent = okLabel;
+    m.classList.remove('hidden');
+    $('#btn-confirm-cancel').focus();
+    return new Promise((resolve) => { this.confirmDone = (v) => { m.classList.add('hidden'); this.confirmDone = null; resolve(v); }; });
+  }
+  get confirmOpen() { return !!this.confirmDone; }
 
   showError(err) {
     $('#error-text').textContent = String(err?.message || err);
@@ -391,7 +418,12 @@ export class UI {
       btn.querySelector('.go-icon').innerHTML = goState === 'early' ? ICONS.fast : ICONS.play;
       btn.classList.toggle('pulse', goState === 'start');
     }
-    set('speed', '#btn-speed', `${this.app.speed}x`);
+    if (c.speed !== this.app.speed) {
+      c.speed = this.app.speed;
+      const b = $('#btn-speed');
+      b.textContent = `${c.speed}x`;
+      b.setAttribute('aria-label', `Game speed ${c.speed}x (F to change)`);
+    }
 
     this.updateBossBar(g, set);
 
@@ -454,7 +486,24 @@ export class UI {
     setTimeout(() => el.remove(), 2200);
   }
 
+  /** The standing hint (or null to clear it). A flash() shows on top of it and then gives it back. */
   hint(text) {
+    this.baseHint = text || null;
+    if (!this.flashing) this.showHint(this.baseHint);
+  }
+  /** A short message (an error, a confirmation prompt) that disappears after `ms`. */
+  flash(text, ms = 1600) {
+    clearTimeout(this.flashTimer);
+    this.flashing = true;
+    this.showHint(text);
+    this.flashTimer = setTimeout(() => this.endFlash(), ms);
+  }
+  endFlash() {
+    clearTimeout(this.flashTimer);
+    this.flashing = false;
+    this.showHint(this.baseHint);
+  }
+  showHint(text) {
     const h = $('#hint');
     if (!text) { h.classList.add('hidden'); return; }
     h.innerHTML = text;
@@ -537,19 +586,20 @@ function statGrid(t) {
 
 function builderChips(t) {
   const s = t.stats, u = s.unit || {};
-  return `<i class="chip gold">Sentries ${t.sentryCount}/${s.maxUnits}</i><i class="chip">Sentry ${u.damage} dmg · ${(1 / u.cooldown).toFixed(1)}/s · ${u.lifespan}s</i>${u.hidden ? '<i class="chip purple">Sees hidden</i>' : ''}${u.shield ? '<i class="chip sky">Shielded</i>' : ''}${u.rocket ? `<i class="chip red">Rockets ${u.rocket.damage}×${u.rocket.count}</i>` : ''}<i class="chip muted-chip" title="Upgrading improves the sentries built after the upgrade.">Sentries keep the level they were built at</i>`;
+  return `<i class="chip gold">Sentries ${t.sentryCount}/${s.maxUnits}</i><i class="chip">Sentry ${u.damage} dmg · ${(1 / u.cooldown).toFixed(1)}/s · ${u.lifespan}s</i>${u.hidden ? '<i class="chip purple">Sees hidden</i>' : ''}${u.shield ? '<i class="chip sky">Shielded</i>' : ''}${u.rocket ? `<i class="chip red">Rockets ${u.rocket.damage}×${u.rocket.count}</i>` : ''}`;
 }
 
 const DIFF_LABEL = {
   damage: 'Damage', cooldown: 'Fire rate', range: 'Range', pierce: 'Pierce', pellets: 'Pellets', burst: 'Burst', splashRadius: 'Blast radius',
   maxHits: 'Max hits', chains: 'Chain jumps', burnDamage: 'Burn', burnDuration: 'Burn time', armorPierce: 'Armor pierce', income: 'Income', spinUp: 'Spin-up',
   coneAngle: 'Cone', cluster: 'Cluster', bossMult: 'Boss damage', projectileSize: 'Bolt size',
-  maxUnits: 'Max sentries', buildRange: 'Build range', scrapMax: 'Scrap per sentry', deadzone: 'Dead zone',
+  maxUnits: 'Sentries', buildRange: 'Build range', scrapMax: 'Scrap/sentry', deadzone: 'Dead zone',
   chainFalloff: 'Damage kept per jump',
 };
-const UNIT_LABEL = { damage: 'Sentry damage', cooldown: 'Sentry fire rate', range: 'Sentry range', health: 'Sentry health', lifespan: 'Sentry lifespan' };
+// Kept short so two fit on a row of the upgrade card.
+const UNIT_LABEL = { damage: 'Sentry dmg', cooldown: 'Sentry rate', range: 'Sentry range', health: 'Sentry HP', lifespan: 'Sentry life' };
 function fmtDiff(k, v) {
-  if (k === 'cooldown') return (1 / v).toFixed(2) + '/s';
+  if (k === 'cooldown') return +(1 / v).toFixed(2) + '/s';
   if (k === 'armorPierce' || k === 'chainFalloff') return Math.round(v * 100) + '%';
   if (k === 'income') return '$' + v;
   if (k === 'spinUp' || k === 'lifespan') return v + 's';
@@ -558,9 +608,12 @@ function fmtDiff(k, v) {
 function statDiff(a, b) {
   const out = [];
   const line = (label, from, to) => out.push(`<span><em>${label}</em> ${from} → <b>${to}</b></span>`);
+  // Build range: show where sentries really go (never closer than the dead zone allows).
+  const val = (s, k) => (k === 'buildRange' && s.scrapMax ? +sentryRing(s).outer.toFixed(1) : s[k]);
   for (const k of Object.keys(DIFF_LABEL)) {
-    if (a[k] === b[k] || b[k] === undefined) continue;
-    line(DIFF_LABEL[k], fmtDiff(k, a[k]), fmtDiff(k, b[k]));
+    const from = val(a, k), to = val(b, k);
+    if (from === to || to === undefined) continue;
+    line(DIFF_LABEL[k], fmtDiff(k, from), fmtDiff(k, to));
   }
   if (!a.detectHidden && b.detectHidden) out.push('<span><b>+ Sees hidden</b></span>');
   if (!a.detectFlying && b.detectFlying) out.push('<span><b>+ Hits flying</b></span>');
@@ -574,7 +627,7 @@ function statDiff(a, b) {
   }
   if (!ua.hidden && ub.hidden) out.push('<span><b>+ Sentries see hidden</b></span>');
   if (!ua.shield && ub.shield) out.push('<span><b>+ Sentry shield (stun immune)</b></span>');
-  if (!ua.rocket && ub.rocket) out.push(`<span><b>+ Sentry rockets ${ub.rocket.damage}×${ub.rocket.count}</b></span>`);
+  if (!ua.rocket && ub.rocket) out.push(`<span><b>+ Rockets ${ub.rocket.damage}×${ub.rocket.count}</b></span>`);
   return out.join('');
 }
 

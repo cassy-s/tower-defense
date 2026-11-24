@@ -241,6 +241,16 @@ test('a game saved between waves resumes exactly', () => {
   r.startNextWave(); eq(r.wave, 7);
 });
 
+test('a resumed game keeps AUTO and can carry on by itself', () => {
+  const g = newGame();
+  g.autoStart = true;
+  const r = Game.fromSave(JSON.parse(JSON.stringify(g.serialize())));
+  eq(r.autoStart, true, 'autoStart lost');
+  r.autoTimer = 0.5; // what the app sets on resume
+  run(r, 1);
+  eq(r.wave, 1, 'AUTO did not send the next wave');
+});
+
 test('a game is not saveable mid-wave', () => {
   const g = newGame();
   g.startNextWave();

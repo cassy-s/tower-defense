@@ -16,6 +16,7 @@ const RUN_KEY = 'blockade.run.v1';   // the game in progress (autosaved between 
 const STEP = 1 / 60;
 const MAX_FRAME = 0.25;              // longest real frame we try to catch up on (seconds)
 const SELL_CONFIRM_MS = 1800;
+const RESUME_AUTO_DELAY = 5;         // seconds before AUTO sends the first wave after CONTINUE
 
 class App {
   constructor() {
@@ -76,30 +77,21 @@ class App {
     const problems = validateContent();
     if (problems.length) console.warn(`[Blockade] ${problems.length} content problem(s):\n` + problems.join('\n'));
     const tick = () => new Promise((r) => setTimeout(r, 0));
+    // Every portrait is drawn here, behind the loading bar, including the
+    // upgraded ones: each takes 10-15 ms, which would drop frames mid-game.
+    const upgraded = TOWER_ORDER.flatMap((id) => (TOWERS[id].upgrades || []).map((_, i) => [id, i + 1]));
     const jobs = [
-      ...TOWER_ORDER.map((id) => () => this.portraits.tower(id)),
-      ...Object.keys(ENEMIES).map((id) => () => this.portraits.zombie(id)),
-      ...MAP_ORDER.map((id) => () => this.mapThumb(id)),
+      ...TOWER_ORDER.map((id) => [() => this.portraits.tower(id), 'Training soldiers…']),
+      ...Object.keys(ENEMIES).map((id) => [() => this.portraits.zombie(id), 'Waking the dead…']),
+      ...MAP_ORDER.map((id) => [() => this.mapThumb(id), 'Laying the roads…']),
+      ...upgraded.map(([id, l]) => [() => this.portraits.tower(id, l), 'Handing out medals…']),
     ];
     for (let i = 0; i < jobs.length; i++) {
-      jobs[i]();
-      this.ui.setLoading((i + 1) / jobs.length, i < TOWER_ORDER.length ? 'Training soldiers…' : i < TOWER_ORDER.length + Object.keys(ENEMIES).length ? 'Waking the dead…' : 'Laying the roads…');
+      jobs[i][0]();
+      this.ui.setLoading((i + 1) / jobs.length, jobs[i][1]);
       if (i % 3 === 0) await tick();
     }
     this.startMenu();
-    this.warmPortraits();
-  }
-
-  /** Render the upgraded-tower portraits in idle time, so the first upgrade to each level doesn't hitch. */
-  warmPortraits() {
-    const jobs = [];
-    for (const id of TOWER_ORDER) for (let l = 1; l <= (TOWERS[id].upgrades || []).length; l++) jobs.push([id, l]);
-    const idle = window.requestIdleCallback || ((fn) => setTimeout(() => fn({ timeRemaining: () => 8 }), 60));
-    const run = (deadline) => {
-      while (jobs.length && deadline.timeRemaining() > 4) { const [id, l] = jobs.shift(); this.portraits.tower(id, l); }
-      if (jobs.length) idle(run);
-    };
-    idle(run);
   }
 
   mapThumb(id) {
@@ -161,7 +153,13 @@ class App {
     for (const ev of ['waveEnd', 'towerPlaced', 'towerUpgraded', 'towerSold']) g.on(ev, dirty);
     if (saved) {
       this.firstPlace = false;
-      this.ui.hint(`Resumed on wave <b>${g.wave}</b>. Press <b>START</b> (or <kbd>Space</kbd>) to send the next wave.`);
+      if (g.autoStart) {
+        // AUTO stays on: give the player a moment to look around, then carry on.
+        g.autoTimer = RESUME_AUTO_DELAY;
+        this.ui.hint(`Resumed on wave <b>${g.wave}</b>. AUTO is on: the next wave starts in ${RESUME_AUTO_DELAY} seconds (<kbd>Space</kbd> sends it now).`);
+      } else {
+        this.ui.hint(`Resumed on wave <b>${g.wave}</b>. Press <b>START</b> (or <kbd>Space</kbd>) to send the next wave.`);
+      }
     } else {
       this.ui.hint('Pick a tower on the right, then click open ground to deploy it. Press <b>START</b> when ready.');
       this.firstPlace = true;
@@ -257,11 +255,7 @@ class App {
     this.canvas.classList.remove('placing');
     this.view.hideGhost();
   }
-  flashHint(html) {
-    this.ui.hint(html);
-    clearTimeout(this.hintTimer);
-    this.hintTimer = setTimeout(() => this.ui.hint(null), 1600);
-  }
+  flashHint(html, ms = 1600) { this.ui.flash(html, ms); }
 
   select(t) {
     this.selectedTower = t;
@@ -285,11 +279,11 @@ class App {
   sellHotkey() {
     const t = this.selectedTower;
     if (!t) return;
-    if (this.sellArmed === t && performance.now() < this.sellArmedUntil) { this.sellSelected(); this.ui.hint(null); return; }
+    if (this.sellArmed === t && performance.now() < this.sellArmedUntil) { this.sellSelected(); this.ui.endFlash(); return; }
     this.sellArmed = t;
     this.sellArmedUntil = performance.now() + SELL_CONFIRM_MS;
     this.sound('click');
-    this.flashHint(`Press <kbd>Del</kbd> again to sell ${t.def.name} for <b>$${t.sellValue.toLocaleString('en-US')}</b>${t.refundable ? ' (full refund)' : ''}`);
+    this.flashHint(`Press <kbd>Del</kbd> again to sell ${t.def.name} for <b>$${t.sellValue.toLocaleString('en-US')}</b>${t.refundable ? ' (full refund)' : ''}`, SELL_CONFIRM_MS);
   }
   useAbility() { const t = this.selectedTower; if (t && !t.useAbility()) this.sound('error'); }
   cycleTargeting(dir) {
@@ -312,6 +306,7 @@ class App {
 
   /** Escape: close whatever is on top, one thing per press. */
   escapePressed() {
+    if (this.ui.confirmOpen) { this.ui.confirmDone(false); return; }
     const pauseOpen = !document.getElementById('modal-pause').classList.contains('hidden');
     if (this.mode !== 'game') {
       if (pauseOpen) { this.ui.closeSettings(); return; }
@@ -380,6 +375,10 @@ class App {
     window.addEventListener('pointerup', () => { this.drag = null; });
     c.addEventListener('wheel', (e) => { if (this.mode === 'game') { e.preventDefault(); this.view.zoomBy(e.deltaY, e.clientX, e.clientY); } }, { passive: false });
 
+    // How did the focused control get focus: Tab (keyboard) or a click/tap?
+    window.addEventListener('pointerdown', () => { this.focusFromKeyboard = false; }, true);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Tab') this.focusFromKeyboard = true; }, true);
+
     window.addEventListener('keydown', (e) => {
       // Only text fields keep their keys. Checkboxes, sliders and dropdowns
       // must not swallow the game's hotkeys (or Escape).
@@ -389,6 +388,7 @@ class App {
       const k = e.key.toLowerCase();
       if (k === 'escape') { e.preventDefault(); this.escapePressed(); return; }
 
+      if (this.ui.confirmOpen) return; // the dialog's own buttons handle Enter/Space
       if (this.mode === 'menu') {
         // Enter deploys from the map screen (unless a button has focus: then Enter presses that button).
         const onButton = el.tagName === 'BUTTON';
@@ -398,8 +398,13 @@ class App {
       if (this.mode !== 'game') return;
       if (!document.getElementById('modal-end').classList.contains('hidden')) return;
       if (this.paused) return;
-      // Inside the game, Space and the hotkeys belong to the game, not to whatever
-      // control was clicked last (Space would otherwise also toggle AUTO or press a button).
+      // A control reached with the keyboard (Tab) keeps Space/Enter, so it can be
+      // pressed. One that only has focus because it was clicked does not.
+      // (:focus-visible can't tell: Chrome turns it on for a clicked button as soon as a key is pressed.)
+      const control = el.tagName === 'BUTTON' || (el.tagName === 'INPUT' && el.type === 'checkbox');
+      if (control && (k === ' ' || k === 'enter') && this.focusFromKeyboard) return;
+      // Otherwise Space and the hotkeys belong to the game, not to whatever control
+      // was clicked last (Space would otherwise also toggle AUTO or press a button).
       if (k === ' ' || el.tagName === 'SELECT' || (el.tagName === 'INPUT' && el.type === 'range')) el.blur?.();
       if (/^[0-9]$/.test(k)) {
         const idx = k === '0' ? 9 : +k - 1;
@@ -455,5 +460,8 @@ class App {
     if (this.mode !== 'loading') this.view.render(this.paused ? 0 : realDt);
   }
 }
+
+// The loader in index.html may have reloaded a stale cached page as ?b=<build>; tidy the address bar.
+if (/[?&]b=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash);
 
 window.app = new App();
