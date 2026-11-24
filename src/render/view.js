@@ -3,16 +3,22 @@
 // what the simulation is doing.
 import * as THREE from 'three';
 import { buildWorld, toWorld } from './world.js';
-import { buildTower, buildZombie, zombieVariant, buildPlate, animateZombie, cloneRig, markShared, buildSentry } from './characters.js';
+import { buildTower, buildZombie, zombieVariant, buildPlate, animateZombie, cloneRig, buildSentry } from './characters.js';
 import { FX } from './fx.js';
-import { PartBuilder, disposeTree, MAT, shade } from './geo.js';
+import { PartBuilder, disposeTree, MAT, shade, shareGeometries } from './geo.js';
 import { WIDTH, HEIGHT, THEMES } from '../config/maps.js';
 import { TOWERS } from '../config/towers.js';
 import { computeStats } from '../game/tower.js';
 import { sentryRing } from '../game/sentry.js';
+import { InstanceBatcher } from './batch.js';
 
+// Built once, cloned per entity (clones share geometry, which lets the batcher
+// draw all copies in one call).
 const zombieTemplates = new Map();
+const towerTemplates = new Map();
+const plateTemplates = new Map();
 const projTemplates = new Map();
+let starsTemplate = null;
 const lerp = (a, b, k) => a + (b - a) * k;
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3();
@@ -45,6 +51,18 @@ export class View {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
+    this.scene.matrixWorldAutoUpdate = false; // render() updates it once, before batching
+    this.scene.matrixAutoUpdate = false;      // the scene root never moves (and this lets the flag below work)
+    // Towers and zombies (with their health bars) live under `actors`. The batcher
+    // updates their matrices and draws them; the scene-wide update skips them.
+    this.actors = new THREE.Group();
+    this.actors.matrixAutoUpdate = false;
+    // three.js still walks into children whatever the flags say, so opt out of the
+    // scene-wide pass explicitly. (getWorldPosition()/updateWorldMatrix() on a
+    // part still work: they use a different method.)
+    this.actors.updateMatrixWorld = () => {};
+    this.scene.add(this.actors);
+    this.batcher = new InstanceBatcher(this.scene);
     this.camera = new THREE.PerspectiveCamera(32, 1, 1, 600);
     this.hemi = new THREE.HemisphereLight('#cfe9ff', '#5d8a3a', 1.2);
     this.sun = new THREE.DirectionalLight('#fff3dc', 2.6);
@@ -231,9 +249,10 @@ export class View {
   clear() {
     for (const u of this.unsub) u();
     this.unsub = [];
-    for (const tv of this.towerViews.values()) { this.scene.remove(tv.root); disposeTree(tv.root); }
-    for (const ev of this.enemyViews.values()) { this.scene.remove(ev.root); disposeTree(ev.root); }
-    for (const d of this.dying) { this.scene.remove(d.root); disposeTree(d.root); }
+    for (const tv of this.towerViews.values()) { tv.root.removeFromParent(); disposeTree(tv.root); }
+    for (const ev of this.enemyViews.values()) { ev.root.removeFromParent(); disposeTree(ev.root); }
+    for (const d of this.dying) { d.root.removeFromParent(); disposeTree(d.root); }
+    this.batcher.clear();
     for (const p of this.projViews.values()) this.scene.remove(p);
     for (const f of this.flyers) { this.scene.remove(f.obj); disposeTree(f.obj); }
     for (const sv of [...this.sentryViews.values(), ...this.dyingSentries]) { this.scene.remove(sv.root); disposeTree(sv.root); }
@@ -255,15 +274,17 @@ export class View {
     const root = new THREE.Group();
     const [x, z] = toWorld(t.x, t.z);
     root.position.set(x, 0, z);
-    const stars = new THREE.Group();
-    const sb = new PartBuilder();
-    for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; sb.box(0.22, 0.22, 0.22, '#ffe14a', Math.cos(a) * 0.7, 0, Math.sin(a) * 0.7, { glow: true, ry: a }); }
-    stars.add(sb.build({ shadows: false }));
+    if (!starsTemplate) {
+      const sb = new PartBuilder();
+      for (let i = 0; i < 4; i++) { const a = (i / 4) * Math.PI * 2; sb.box(0.22, 0.22, 0.22, '#ffe14a', Math.cos(a) * 0.7, 0, Math.sin(a) * 0.7, { glow: true, ry: a }); }
+      starsTemplate = shareGeometries(sb.build({ shadows: false }));
+    }
+    const stars = starsTemplate.clone(true);
     stars.position.y = 3.3; stars.visible = false;
     root.add(stars);
     const tv = { tower: t, root, stars, rig: null, plate: null, yaw: t.angle, recoil: 0, level: -1, pop: 0 };
     this.towerViews.set(t.id, tv);
-    this.scene.add(root);
+    this.actors.add(root); // drawn through the instance batcher
     this.rebuildTower(t, false);
     tv.pop = 1;
     return tv;
@@ -274,8 +295,14 @@ export class View {
     if (!tv) return;
     if (tv.rig) { tv.root.remove(tv.rig.root); disposeTree(tv.rig.root); }
     if (tv.plate) { tv.root.remove(tv.plate); disposeTree(tv.plate); }
-    tv.rig = buildTower(t.look);
-    tv.plate = buildPlate(t.level, t.footprint);
+    // Towers that look the same share one template's geometry, so the batcher
+    // can draw all of them (e.g. six max-level Riveters) together.
+    const lookKey = JSON.stringify(t.look);
+    if (!towerTemplates.has(lookKey)) towerTemplates.set(lookKey, (() => { const r = buildTower(t.look); shareGeometries(r.root); return r; })());
+    tv.rig = cloneRig(towerTemplates.get(lookKey));
+    const plateKey = `${t.level}|${t.footprint}`;
+    if (!plateTemplates.has(plateKey)) plateTemplates.set(plateKey, shareGeometries(buildPlate(t.level, t.footprint)));
+    tv.plate = plateTemplates.get(plateKey).clone(true);
     tv.root.add(tv.rig.root, tv.plate);
     tv.rig.root.position.y = 0.2;
     tv.level = t.level;
@@ -296,7 +323,7 @@ export class View {
       this.fx.goo({ x, y: 1, z }, '#9a8a6a', 14, 5);
       this.fx.text({ x, y: 2.5, z }, `+$${t.sellValue}`, 'cash');
     }
-    this.scene.remove(tv.root); disposeTree(tv.root);
+    tv.root.removeFromParent(); disposeTree(tv.root);
     this.towerViews.delete(t.id);
     if (this.selected === t) this.select(null);
   }
@@ -405,7 +432,7 @@ export class View {
   addEnemy(e) {
     const variant = zombieVariant(e.def, Math.random);
     const key = `${e.type}|${variant.join(',')}|${e.mods.join(',')}`;
-    if (!zombieTemplates.has(key)) zombieTemplates.set(key, (() => { const t = buildZombie(e.def, variant, e.mods); markShared(t.root); return t; })());
+    if (!zombieTemplates.has(key)) zombieTemplates.set(key, (() => { const t = buildZombie(e.def, variant, e.mods); shareGeometries(t.root); return t; })());
     const rig = cloneRig(zombieTemplates.get(key));
     const root = new THREE.Group();
     root.add(rig.root);
@@ -422,7 +449,7 @@ export class View {
     const ev = { enemy: e, root, rig, bar, fill, sh, barW: w, phase: Math.random() * 6, yaw: Math.atan2(e.dx, e.dz), lastHit: -1, pop: 0, gore: shade(rig.kind === 'knight' || rig.kind === 'warlock' ? '#2a3a4a' : (e.def.look.skin?.[0] || '#4a6a3a'), -0.25), rise: 0 };
     root.rotation.y = ev.yaw;
     this.syncEnemy(ev, 0);
-    this.scene.add(root);
+    this.actors.add(root); // drawn through the instance batcher
     this.enemyViews.set(e.id, ev);
     if (e.boss) this.onSound?.('boss');
   }
@@ -451,7 +478,7 @@ export class View {
     const ev = this.enemyViews.get(e.id);
     if (!ev) return;
     this.enemyViews.delete(e.id);
-    this.scene.remove(ev.root); disposeTree(ev.root);
+    ev.root.removeFromParent(); disposeTree(ev.root);
     const p = this.world.basePos;
     this.fx.goo({ x: p.x - 3, y: 1, z: p.z }, '#ff3a2a', 10, 5);
     this.fx.text({ x: p.x - 3, y: 3, z: p.z }, `-${e.leak}`, 'damage');
@@ -511,7 +538,7 @@ export class View {
         b.rbox(0.45, 0.45, 0.55, '#3d4a2a', 0, 0, 0, { r: 0.15 });
         b.box(0.2, 0.15, 0.2, '#d8b02a', 0, 0.28, 0);
       }
-      projTemplates.set(tkey, markShared(b.build({ shadows: true })));
+      projTemplates.set(tkey, shareGeometries(b.build({ shadows: true })));
     }
     const m = projTemplates.get(tkey).clone(true);
     m.userData.p = p;
@@ -735,7 +762,7 @@ export class View {
       rig.root.position.y = (rig.root.position.y || 0) + dt * 0.8;
       rig.root.visible = k < 0.9 && !(k > 0.35 && Math.floor(ev.deathT * 40) % 3 === 0);
       if (k > 0.05 && k < 0.9 && Math.random() < dt * 40) this.dustFrom(ev, 3);
-      if (k >= 1) { this.scene.remove(ev.root); disposeTree(ev.root); this.dying.splice(i, 1); }
+      if (k >= 1) { ev.root.removeFromParent(); disposeTree(ev.root); this.dying.splice(i, 1); }
     }
 
     for (const m of this.projViews.values()) {
@@ -913,6 +940,10 @@ export class View {
   render(realDt) {
     this.updateCamera(realDt);
     this.fx.update(realDt, this.vw, this.vh);
+    // World matrices are updated once here (not again inside render()), then
+    // the zombies' parts are gathered into instanced batches.
+    this.scene.updateMatrixWorld();
+    this.batcher.update(this.actors);
     this.renderer.render(this.scene, this.camera);
   }
 }

@@ -10,6 +10,7 @@
     "sim": "node tools/sim.mjs",
     "check": "node tools/check.mjs",
     "test": "node tools/test.mjs",
+    "bench": "node tools/bench.mjs",
     "stamp": "node tools/stamp.mjs"
   }
 }

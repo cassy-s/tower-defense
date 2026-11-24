@@ -22,13 +22,17 @@ export function roundedBox(w, h, d, r = 0) {
   else {
     const half = [w / 2, h / 2, d / 2];
     r = Math.min(r, half[0] - 0.001, half[1] - 0.001, half[2] - 0.001);
-    g = new THREE.BoxGeometry(w, h, d, 4, 4, 4);
+    // 3 segments per side: the inner grid lines are moved to where the bevel
+    // starts, giving a flat centre and one rounded strip per edge. (4 segments
+    // made the same shape with a redundant line through the middle: 192
+    // triangles per box instead of 108.)
+    g = new THREE.BoxGeometry(w, h, d, 3, 3, 3);
     const pos = g.attributes.position, nor = g.attributes.normal;
     const v = [0, 0, 0], inner = [0, 0, 0];
     for (let i = 0; i < pos.count; i++) {
       v[0] = pos.getX(i); v[1] = pos.getY(i); v[2] = pos.getZ(i);
       for (let k = 0; k < 3; k++) {
-        if (Math.abs(Math.abs(v[k]) - half[k] / 2) < 1e-5) v[k] = Math.sign(v[k]) * (half[k] - r);
+        if (Math.abs(Math.abs(v[k]) - half[k] / 3) < 1e-5) v[k] = Math.sign(v[k]) * (half[k] - r);
         inner[k] = Math.max(-(half[k] - r), Math.min(half[k] - r, v[k]));
       }
       const ox = v[0] - inner[0], oy = v[1] - inner[1], oz = v[2] - inner[2];
@@ -124,6 +128,47 @@ export class PartBuilder {
     if (glow) { const m = new THREE.Mesh(glow, MAT.glow); group.add(m); }
     return group;
   }
+}
+
+// ------------------------------------------------- geometry sharing --------
+const geoByHash = new Map(); // content hash -> [geometry...]
+
+function hashFloats(h, arr) {
+  const u = new Uint32Array(arr.buffer, arr.byteOffset, arr.length);
+  for (let i = 0; i < u.length; i++) { h ^= u[i]; h = Math.imul(h, 0x01000193); }
+  return h;
+}
+function sameGeometry(a, b) {
+  for (const name of ['position', 'normal', 'color']) {
+    const x = a.attributes[name]?.array, y = b.attributes[name]?.array;
+    if (!x || !y) { if (x !== y) return false; continue; }
+    if (x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * Replace every mesh geometry under `root` with an identical one built before,
+ * if there is one. Zombie variants differ only in a colour or two, so most of
+ * their parts (a head with the same skin, legs with the same trousers...) come
+ * out byte-identical; sharing them lets the instance batcher draw them
+ * together. Call on templates only (geometries are kept for the whole session).
+ */
+export function shareGeometries(root) {
+  root.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh || !o.geometry?.attributes?.position) return;
+    const g = o.geometry;
+    let h = 0x811c9dc5;
+    for (const name of ['position', 'normal', 'color']) if (g.attributes[name]) h = hashFloats(h, g.attributes[name].array);
+    const list = geoByHash.get(h) || [];
+    const twin = list.find((x) => x === g || sameGeometry(x, g));
+    if (twin && twin !== g) { if (!g.userData.shared) g.dispose(); o.geometry = twin; }
+    else if (!twin) list.push(g);
+    geoByHash.set(h, list);
+    o.geometry.userData.shared = true;
+  });
+  return root;
 }
 
 /** Dispose all geometries under an object (materials are shared). */

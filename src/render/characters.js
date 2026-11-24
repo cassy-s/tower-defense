@@ -40,6 +40,18 @@ export function cloneRig(t) {
   const rig = { ...t, root, extra: {}, spinners: [] };
   for (const n of RIG_PARTS) rig[n] = root.getObjectByName(n);
   rig.wings = t.wings.map((_, i) => root.getObjectByName(`wing${i}`));
+  // Tower rigs: the parts nameRigExtras() labelled.
+  rig.spinners = t.spinners.map((_, i) => root.getObjectByName(`spinner${i}`));
+  rig.muzzle = t.muzzle ? root.getObjectByName('muzzle') : null;
+  rig.weaponGroup = t.weaponGroup ? root.getObjectByName('weaponGroup') : null;
+  return rig;
+}
+
+/** Name the tower-only parts so cloneRig() can find them in a copy. */
+function nameRigExtras(rig) {
+  rig.spinners.forEach((s, i) => { s.name = `spinner${i}`; });
+  if (rig.muzzle) rig.muzzle.name = 'muzzle';
+  if (rig.weaponGroup) rig.weaponGroup.name = 'weaponGroup';
   return rig;
 }
 
@@ -49,7 +61,12 @@ export function markShared(obj) {
   return obj;
 }
 
-function attach(group, builder, opts) { const m = builder.build(opts); group.add(m); return m; }
+/** Build a part straight into `group` (no wrapper Group: fewer objects to update every frame). */
+function attach(group, builder, opts) {
+  const m = builder.build(opts);
+  while (m.children.length) group.add(m.children[0]);
+  return group;
+}
 
 // ---------------------------------------------------------------- parts ----
 function crack(b, x, y, z, nx, nz, rng, color, len = 0.9) {
@@ -362,7 +379,7 @@ function buildModelTower(L, id, ghost) {
   applyPose(rig);
   crates(rig, L.crates || 0);
   if (ghost) rig.root.traverse((o) => { if (o.isMesh && o.material === MAT.lit) o.material = MAT.ghost; o.castShadow = false; });
-  return rig;
+  return nameRigExtras(rig);
 }
 
 // ---------------------------------------------------------------- tower ----
@@ -390,7 +407,7 @@ export function buildTower(look, { ghost = false } = {}) {
   applyPose(rig);
   crates(rig, L.crates || 0);
   if (ghost) rig.root.traverse((o) => { if (o.isMesh && o.material === MAT.lit) o.material = MAT.ghost; o.castShadow = false; });
-  return rig;
+  return nameRigExtras(rig);
 }
 
 // --------------------------------------------------------------- zombie ----
