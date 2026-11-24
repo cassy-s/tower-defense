@@ -163,22 +163,26 @@ function damageChart(box, history) {
     const vx = ((e.clientX - p.left) / p.width) * W;
     return Math.max(0, Math.min(n - 1, Math.floor((vx - L) / band)));
   };
+  let shown = -1;   // the tooltip is only rebuilt when the pointer moves to another wave
   svg.addEventListener('pointermove', (e) => {
     const i = pick(e), r = rows[i];
-    hover.setAttribute('x', L + band * i); hover.setAttribute('width', band);
-    const list = series.map((s, k) => ({ color: s.color, name: s.name, value: fmt(r.vals[k]) })).filter((_, k) => r.vals[k] > 0).reverse();
-    list.push({ name: 'Total', value: fmt(r.total), strong: true });
-    fillTip(tip, `Wave ${r.w}${r.partial ? ' (lost)' : ''}`, list);
+    if (i !== shown) {
+      shown = i;
+      hover.setAttribute('x', L + band * i); hover.setAttribute('width', band);
+      const list = series.map((s, k) => ({ color: s.color, name: s.name, value: fmt(r.vals[k]) })).filter((_, k) => r.vals[k] > 0).reverse();
+      list.push({ name: 'Total', value: fmt(r.total), strong: true });
+      fillTip(tip, `Wave ${r.w}${r.partial ? ' (lost)' : ''}`, list);
+    }
     placeTip(tip, box, e.clientX, e.clientY);
   });
-  svg.addEventListener('pointerleave', () => { tip.classList.add('hidden'); hover.setAttribute('width', 0); });
+  svg.addEventListener('pointerleave', () => { shown = -1; tip.classList.add('hidden'); hover.setAttribute('width', 0); });
 }
 
 // ------------------------------------------------------------ ECONOMY ---
 function economyChart(box, history, maxLives) {
   const n = history.length;
   const panels = [
-    { title: 'Cash in hand', get: (h) => h.cash, money: true },
+    { title: 'Cash in hand', get: (h) => h.cash },
     { title: 'Lives', get: (h) => h.lives, max: maxLives },
   ];
   const PH = 100, L = 44, R = W - 10;
@@ -203,10 +207,13 @@ function economyChart(box, history, maxLives) {
   box.appendChild(svg);
 
   const tip = box.querySelector('.chart-tip');
+  let shown = -1;
   svg.addEventListener('pointermove', (e) => {
     const p = svg.getBoundingClientRect();
     const vx = ((e.clientX - p.left) / p.width) * W;
     const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round(((vx - L) / (R - L)) * (n - 1))));
+    if (i === shown) { placeTip(tip, box, e.clientX, e.clientY); return; }
+    shown = i;
     const h = history[i], prev = history[i - 1];
     cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.classList.add('on');
     for (const d of dots) { d.dot.setAttribute('cx', x(i)); d.dot.setAttribute('cy', d.y(d.vals[i])); d.dot.classList.add('on'); }
@@ -219,6 +226,7 @@ function economyChart(box, history, maxLives) {
     placeTip(tip, box, e.clientX, e.clientY);
   });
   svg.addEventListener('pointerleave', () => {
+    shown = -1;
     tip.classList.add('hidden'); cross.classList.remove('on');
     for (const d of dots) d.dot.classList.remove('on');
   });

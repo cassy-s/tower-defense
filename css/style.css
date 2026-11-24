@@ -541,7 +541,7 @@ body.replaying .hud-top { right: 16px; }
 .rp-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 900; white-space: nowrap; overflow: hidden; }
 .rp-top b { font-family: var(--display); font-weight: 400; font-size: 15px; letter-spacing: 0.04em; overflow: hidden; text-overflow: ellipsis; }
 .rp-top span { color: var(--gold); }
-.rp-track { height: 10px; border-radius: 5px; background: #0e131b; border: 2px solid var(--ink); overflow: hidden; }
+.rp-track { cursor: pointer; height: 10px; border-radius: 5px; background: #0e131b; border: 2px solid var(--ink); overflow: hidden; }
 .rp-fill { height: 100%; width: 0; background: linear-gradient(#ffd34a, #d8a838); }
 #rp-speed { min-width: 52px; }
 #rp-skip:disabled { opacity: 0.5; cursor: default; }

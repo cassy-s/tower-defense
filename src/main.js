@@ -2,7 +2,7 @@
 // runs the main loop.
 import { Game, CMD, snapCoord } from './game/game.js';
 import { TARGETING } from './game/tower.js';
-import { ReplayPlayer, makeReplay, liveSegment, startOf, resultOf, sameResult, encodeReplay, decodeReplay } from './game/replay.js';
+import { ReplayPlayer, makeReplay, liveSegment, startOf, resultOf, sameResult, encodeReplay, decodeReplay, simVersion } from './game/replay.js';
 import { View } from './render/view.js';
 import { Portraits } from './render/portraits.js';
 import { UI } from './ui/ui.js';
@@ -92,7 +92,7 @@ class App {
     if (this.mode === 'game') return false;
     if (this.mode !== 'replay') return true;
     const p = this.player;
-    return !p || p.skipTo != null || p.speed > 2;
+    return !p || !!p.target || p.speed > 2;
   }
 
   // --------------------------------------------------------------- boot ---
@@ -223,13 +223,13 @@ class App {
   /** Watch a replay. Returns false if it can't be played. */
   startReplay(replay) {
     let p;
-    try { p = new ReplayPlayer(replay); } catch (err) { console.warn('[Blockade] bad replay:', err); this.ui.flash('That replay could not be loaded.', 2500); return false; }
+    try { p = new ReplayPlayer(replay); } catch (err) { console.warn('[Blockade] bad replay:', err); this.ui.notice('CAN’T PLAY THAT', 'That replay could not be loaded.'); return false; }
     audio.init();
     clearTimeout(this.endTimer);
     this.cancelPlacing();
     this.select(null);
     this.player = p;
-    p.speed = 1; p.paused = false; p.skipTo = null;
+    p.speed = 1; p.paused = false; p.target = null;
     this.mode = 'replay';
     this.speed = 1;
     this.paused = false;
@@ -240,6 +240,10 @@ class App {
     this.ui.showScreen('game');
     this.ui.showReplayBar(p);
     this.updateInsets();
+    const sim = simVersion();
+    if (replay.sim && replay.sim !== sim && replay.sim !== 'dev' && sim !== 'dev') {
+      this.ui.toast('<div><small>OLDER REPLAY</small><b>Recorded on another version</b><span>The game has changed since, so it may play out differently.</span></div>', 'intro', 6500);
+    }
     return true;
   }
 
@@ -275,43 +279,79 @@ class App {
   replaySkip() {
     const p = this.player;
     if (!p || p.done) return;
-    p.skipTo = p.skipTo != null ? p.skipTo + 1 : p.game.wave + 1;
+    p.target = { wave: p.target?.wave ? p.target.wave + 1 : p.game.wave + 1 };
     p.paused = false;
+    this.ui.updateReplayBar(p, true);
+  }
+  /**
+   * Jump to a point in the replay (0-1, from the progress bar). Forward runs
+   * on from here; backward starts again from the beginning. Either way it is
+   * a headless fast-forward, which gets through a whole game in well under a second.
+   */
+  replaySeek(frac) {
+    let p = this.player;
+    if (!p) return;
+    const tick = Math.round(Math.max(0, Math.min(1, frac)) * p.totalTicks);
+    if (tick < p.tick) {
+      const fresh = new ReplayPlayer(p.replay);
+      fresh.speed = p.speed; fresh.paused = p.paused;
+      this.player = p = fresh;
+      clearTimeout(this.endTimer);
+      document.getElementById('modal-end').classList.add('hidden');
+      this.showReplayGame();
+    }
+    p.target = { tick };
     this.ui.updateReplayBar(p, true);
   }
 
   /** Advance the replay for one frame. */
   stepReplay(realDt) {
     const p = this.player;
-    if (p.paused && p.skipTo == null) return;
-    let switched = false;
-    const run = () => {
-      const r = p.step(STEP);
-      if (r === 'segment') switched = true;
-      return r;
-    };
-    if (p.skipTo != null) {
-      // Fast-forward: as many steps as fit in the time budget, nothing drawn in between.
-      const until = performance.now() + SKIP_BUDGET_MS;
-      while (performance.now() < until) {
-        if (p.done || p.game.wave >= p.skipTo) { p.skipTo = null; this.acc = 0; break; }
-        for (let i = 0; i < 30 && !p.done; i++) run();
-      }
-    } else {
+    if (p.target) this.skipFrame(p);
+    else if (!p.paused) {
       this.acc += realDt * p.speed;
       const maxSteps = Math.ceil((MAX_FRAME * REPLAY_SPEEDS.at(-1)) / STEP);
-      let steps = 0;
-      while (this.acc >= STEP && steps < maxSteps && !p.done) { run(); this.acc -= STEP; steps++; }
+      let steps = 0, switched = false;
+      while (this.acc >= STEP && steps < maxSteps && !p.done) {
+        if (p.step(STEP) === 'segment') switched = true;
+        this.acc -= STEP; steps++;
+      }
       if (this.acc >= STEP) this.acc = STEP * 0.999;
+      if (switched) this.showReplayGame();
     }
-    if (switched) this.showReplayGame();
     if (p.done && !p.finished) this.finishReplay();
+  }
+
+  /**
+   * Fast-forward, one frame's worth. The view and HUD are unplugged from the
+   * game's events while it runs (they would spend ~5x the simulation's time on
+   * shots, particles and zombies nobody sees), and catch up once at the end.
+   */
+  skipFrame(p) {
+    if (!p.unplugged) { p.unplugged = { game: p.game, listeners: p.game.listeners }; p.game.listeners = {}; }
+    const until = performance.now() + SKIP_BUDGET_MS;
+    do {
+      for (let i = 0; i < 8 && !reached(p); i++) {   // a late-game step can take 0.5 ms: check the clock often
+        // A resumed run moves on to a new Game: show its numbers, wire it up when the skip ends.
+        if (p.step(STEP) === 'segment') { p.game.listeners = {}; this.game = this.ui.game = p.game; }
+      }
+    } while (!reached(p) && performance.now() < until);
+    if (reached(p)) this.endSkip(p);
+  }
+
+  endSkip(p) {
+    const u = p.unplugged;
+    p.target = null;
+    p.unplugged = null;
+    this.acc = 0;
+    if (u.game === p.game) { p.game.listeners = u.listeners; this.view.resync(); }
+    else this.showReplayGame();
+    this.ui.updateReplayBar(p, true);
   }
 
   finishReplay() {
     const p = this.player;
     p.finished = true;
-    p.skipTo = null;
     const g = p.game;
     const recorded = p.replay.result;
     // A replay recorded on another version of the game may play out differently.
@@ -327,10 +367,10 @@ class App {
       const code = await encodeReplay(replay);
       const url = `${location.origin}${location.pathname}#replay=${code}`;
       await navigator.clipboard.writeText(url);
-      this.ui.flash(`Replay link copied (${Math.ceil(url.length / 1024)} KB). Anyone who opens it watches this game.`, 3000);
+      this.ui.buttonFeedback('#btn-end-share', 'LINK COPIED ✓');
     } catch (err) {
       console.warn('[Blockade] share failed:', err);
-      this.ui.flash('Could not copy the replay link.', 2500);
+      this.ui.buttonFeedback('#btn-end-share', 'COPY FAILED');
     }
   }
 
@@ -339,7 +379,7 @@ class App {
     const m = /^#replay=([\w-]+)$/.exec(location.hash);
     if (!m) return;
     history.replaceState(null, '', location.pathname + location.search);
-    try { this.startReplay(await decodeReplay(m[1])); } catch (err) { console.warn('[Blockade] bad replay link:', err); this.ui.flash('That replay link is broken or incomplete.', 3000); }
+    try { this.startReplay(await decodeReplay(m[1])); } catch (err) { console.warn('[Blockade] bad replay link:', err); this.ui.notice('BROKEN LINK', 'That replay link is broken or incomplete. Ask for it again, copied in full.'); }
   }
 
   restart() {
@@ -615,9 +655,11 @@ class App {
     if (this.mode === 'replay') {
       this.stepReplay(realDt);
       const p = this.player;
-      const moving = !p.paused || p.skipTo != null;
-      const alpha = moving && this.game.state === 'playing' ? Math.min(1, this.acc / STEP) : 1;
-      this.view.update(moving ? realDt * p.speed : 0, alpha);
+      // While fast-forwarding the view is unplugged: just keep drawing the last picture.
+      if (!p.unplugged) {
+        const alpha = !p.paused && this.game.state === 'playing' ? Math.min(1, this.acc / STEP) : 1;
+        this.view.update(p.paused ? 0 : realDt * p.speed, alpha);
+      }
       this.ui.update();
       this.ui.updateReplayBar(p);
     } else if (this.game && !this.paused && this.mode !== 'loading') {
@@ -641,6 +683,12 @@ class App {
     }
     if (this.mode !== 'loading') this.view.render(this.paused ? 0 : realDt);
   }
+}
+
+/** Has a replay fast-forward reached its target (a wave, or a tick from the progress bar)? */
+function reached(p) {
+  const t = p.target;
+  return p.done || !t || (t.tick != null ? p.tick >= t.tick : p.game.wave >= t.wave);
 }
 
 // The loader in index.html may have reloaded a stale cached page as ?b=<build>; tidy the address bar.

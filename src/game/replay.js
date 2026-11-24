@@ -9,7 +9,7 @@
 // resumed game reseeds its RNG, so it can't be one continuous stream).
 //
 //   { v, sim, map, diff, segs: [{ seed, start: save|null, cmds: [[tick, op, ...args]], end }], result }
-import { Game } from './game.js';
+import { Game, CMD } from './game.js';
 
 export const REPLAY_VERSION = 1;
 
@@ -96,7 +96,12 @@ export class ReplayPlayer {
  * the game and config modules in index.html's import map. A replay recorded on
  * another version may play out differently. 'dev' outside the browser.
  */
+let cachedSim = null;
 export function simVersion() {
+  return (cachedSim ||= readSimVersion());
+}
+
+function readSimVersion() {
   if (typeof document === 'undefined') return 'dev';
   const map = document.querySelector('script[type="importmap"]');
   if (!map) return 'dev';
@@ -112,6 +117,40 @@ export function simVersion() {
 
 // ------------------------------------------------------------- sharing ---
 // A replay travels as compressed JSON in the address bar (#replay=...).
+// Before compressing, commands are packed into one flat list per segment:
+// ticks become the gap since the previous command, and placement coordinates
+// (always multiples of 1/64) become whole numbers. A third shorter link.
+
+/** How many arguments each command takes. */
+const ARGS = { [CMD.place]: 3, [CMD.upgrade]: 1, [CMD.sell]: 1, [CMD.wave]: 0, [CMD.auto]: 1, [CMD.target]: 2, [CMD.ability]: 1, [CMD.delay]: 1 };
+
+export function packCmds(cmds) {
+  const out = [];
+  let last = 0;
+  for (const c of cmds) {
+    out.push(c[0] - last, c[1]);
+    last = c[0];
+    if (c[1] === CMD.place) out.push(c[2], c[3] * 64, c[4] * 64);
+    else for (let i = 2; i < c.length; i++) out.push(c[i]);
+  }
+  return out;
+}
+
+export function unpackCmds(flat) {
+  const cmds = [];
+  let tick = 0;
+  for (let i = 0; i < flat.length;) {
+    tick += flat[i];
+    const op = flat[i + 1];
+    const n = ARGS[op];
+    if (n === undefined) throw new Error(`Unknown replay command ${op}`);
+    const args = flat.slice(i + 2, i + 2 + n);
+    if (op === CMD.place) { args[1] /= 64; args[2] /= 64; }
+    cmds.push([tick, op, ...args]);
+    i += 2 + n;
+  }
+  return cmds;
+}
 
 async function pipe(bytes, stream) {
   const out = new Blob([bytes]).stream().pipeThrough(stream);
@@ -119,7 +158,8 @@ async function pipe(bytes, stream) {
 }
 
 export async function encodeReplay(replay) {
-  const bytes = await pipe(new TextEncoder().encode(JSON.stringify(replay)), new CompressionStream('deflate-raw'));
+  const packed = { ...replay, packed: 1, segs: replay.segs.map((s) => ({ ...s, cmds: packCmds(s.cmds) })) };
+  const bytes = await pipe(new TextEncoder().encode(JSON.stringify(packed)), new CompressionStream('deflate-raw'));
   let bin = '';
   for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -131,5 +171,10 @@ export async function decodeReplay(code) {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   const json = new TextDecoder().decode(await pipe(bytes, new DecompressionStream('deflate-raw')));
-  return JSON.parse(json);
+  const r = JSON.parse(json);
+  if (r.packed) {
+    delete r.packed;
+    for (const s of r.segs || []) s.cmds = unpackCmds(s.cmds);
+  }
+  return r;
 }

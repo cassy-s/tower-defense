@@ -64,6 +64,10 @@ export class UI {
     click('#rp-speed', () => this.app.replaySpeed());
     click('#rp-skip', () => this.app.replaySkip());
     click('#rp-exit', () => this.app.exitReplay());
+    $('#rp-track').addEventListener('pointerdown', (e) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      this.app.replaySeek((e.clientX - r.left) / r.width);
+    });
     const tabs = $('#graph-tabs');
     for (const [id, label] of GRAPH_TABS) {
       const b = document.createElement('button');
@@ -387,13 +391,26 @@ export class UI {
   }
 
   /** Yes/no dialog. Resolves true for OK, false for Cancel or Escape. */
-  confirm(html, okLabel = 'OK') {
+  confirm(html, okLabel = 'OK', { title = 'ARE YOU SURE?', cancel = true } = {}) {
     const m = $('#modal-confirm');
+    $('#confirm-title').textContent = title;
     $('#confirm-text').innerHTML = html;
     $('#btn-confirm-ok').textContent = okLabel;
+    $('#btn-confirm-cancel').classList.toggle('hidden', !cancel);
     m.classList.remove('hidden');
-    $('#btn-confirm-cancel').focus();
+    $(cancel ? '#btn-confirm-cancel' : '#btn-confirm-ok').focus();
     return new Promise((resolve) => { this.confirmDone = (v) => { m.classList.add('hidden'); this.confirmDone = null; resolve(v); }; });
+  }
+  /** A message with just an OK button (works on any screen, unlike the in-game hint). */
+  notice(title, html) { return this.confirm(html, 'OK', { title, cancel: false }); }
+
+  /** Briefly swaps a button's label for a result ("LINK COPIED"). */
+  buttonFeedback(sel, text, ms = 2000) {
+    const b = $(sel);
+    b.dataset.label ||= b.textContent;
+    b.textContent = text;
+    clearTimeout(b.feedbackTimer);
+    b.feedbackTimer = setTimeout(() => { b.textContent = b.dataset.label; }, ms);
   }
   get confirmOpen() { return !!this.confirmDone; }
 
@@ -597,7 +614,7 @@ export class UI {
       b.setAttribute('aria-label', playing ? 'Pause replay (Space)' : 'Play replay (Space)');
     }
     if (c.speed !== p.speed) { c.speed = p.speed; $('#rp-speed').textContent = `${p.speed}x`; }
-    const status = p.skipTo != null ? `SKIPPING TO WAVE ${p.skipTo}…` : p.finished ? 'FINISHED' : '';
+    const status = p.target ? (p.target.wave ? `SKIPPING TO WAVE ${p.target.wave}…` : 'SEEKING…') : p.finished ? 'FINISHED' : '';
     if (c.status !== status) { c.status = status; $('#rp-status').textContent = status; $('#rp-skip').disabled = !!p.finished; }
   }
 }

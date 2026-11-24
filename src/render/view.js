@@ -249,6 +249,32 @@ export class View {
   clear() {
     for (const u of this.unsub) u();
     this.unsub = [];
+    this.clearActors();
+    if (this.world) { this.scene.remove(this.world.group); disposeTree(this.world.group); this.world = null; }
+    this.hideGhost();
+    this.range.visible = false;
+    this.showBuilderRings(0, 0, null);
+    this.selected = null;
+    this.selRing.visible = false;
+  }
+
+  /**
+   * Rebuild every tower, zombie, sentry and projectile from the game's state,
+   * keeping the map and the event subscriptions. A replay fast-forwards with
+   * the view unplugged (it would only draw effects nobody sees) and calls this
+   * once at the end.
+   */
+  resync() {
+    const game = this.game;
+    this.clearActors();
+    for (const t of game.towers) this.addTower(t);
+    for (const e of game.enemies) this.addEnemy(e);
+    for (const s of game.sentries) this.addSentry(s, { quiet: true });
+    for (const p of game.projectiles) this.addProjectile(p);
+    if (this.selected && !game.towers.includes(this.selected)) this.select(null);
+  }
+
+  clearActors() {
     for (const tv of this.towerViews.values()) { tv.root.removeFromParent(); disposeTree(tv.root); }
     for (const ev of this.enemyViews.values()) { ev.root.removeFromParent(); disposeTree(ev.root); }
     for (const d of this.dying) { d.root.removeFromParent(); disposeTree(d.root); }
@@ -261,12 +287,6 @@ export class View {
     this.towerViews.clear(); this.enemyViews.clear(); this.projViews.clear(); this.dying = []; this.flyers = [];
     this.fx.reset(); // particles, splats and floating text don't carry over into the next game
     this.baseShake = 0;
-    if (this.world) { this.scene.remove(this.world.group); disposeTree(this.world.group); this.world = null; }
-    this.hideGhost();
-    this.range.visible = false;
-    this.showBuilderRings(0, 0, null);
-    this.selected = null;
-    this.selRing.visible = false;
   }
 
   // ----------------------------------------------------------- towers -----

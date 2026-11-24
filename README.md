@@ -24,6 +24,8 @@ No Node? On Windows, `powershell -ExecutionPolicy Bypass -File server.ps1` serve
 - **Space** starts the next wave. It can also send a wave early. **F** changes speed (1x/2x/3x). **Esc** closes whatever is open, or pauses. **M** mutes.
 - Scroll to zoom, right-drag to pan.
 - The game saves between waves. Press **CONTINUE** on the title screen to pick up where you left off.
+- After a game, the end screen graphs damage per wave by tower type, cash and lives over the game, and every tower's share of the damage.
+- Every game is recorded. **WATCH REPLAY** plays it back (**Space** pause, **F** speed up to 8x, **N** next wave, click the progress bar to jump); **COPY REPLAY LINK** gives a link anyone can open to watch it. The title screen can replay your last game.
 - Watch for **Shades** (hidden, wave 11+) and **Carrion** (flying, wave 21+). Only towers that see hidden zombies can target Shades (explosions still catch them), and only towers that hit flying can hurt Carrion.
 
 3 maps × 3 difficulties (Easy 30 / Medium 40 / Hard 50 waves). Bosses arrive on waves 15, 25, 30, 35, 40, 45 and 50.
@@ -31,7 +33,7 @@ No Node? On Windows, `powershell -ExecutionPolicy Bypass -File server.ps1` serve
 ## Project layout
 ```
 src/config/   towers.js, enemies.js, waves.js, maps.js: all game content as data
-src/game/     pure simulation (no rendering); runs headless in Node
+src/game/     pure simulation (no rendering); runs headless in Node. replay.js records and replays games
 src/render/   Three.js view: block characters, weapons, map diorama, particles, portraits
 src/ui/       menus, HUD, shop, inspector
 tests/        simulation tests (run by `npm test`, or open /tests/ in the browser)
